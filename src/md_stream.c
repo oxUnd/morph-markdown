@@ -790,9 +790,6 @@ int morph_md_stream_append(struct morph_md_stream *stream,
 	if (rc != 0)
 		return rc;
 
-	if (stream->tail.len > stream->options.max_tail_bytes && !is_final)
-		is_final = 1;
-
 	rc = process_stream(stream, is_final);
 	if (rc != 0)
 		emit_patch(stream, MORPH_MD_PATCH_ERROR, "{\"error\":\"parse\"}");

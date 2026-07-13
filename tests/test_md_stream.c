@@ -459,6 +459,34 @@ static int test_footnotes_extension(void)
 	return 0;
 }
 
+static int test_tail_limit_does_not_finish_stream(void)
+{
+	struct morph_md_options opts = {0};
+	struct morph_md_stats stats;
+	struct morph_md_stream *stream;
+	int rc;
+
+	opts.enable_gfm = 1;
+	opts.max_tail_bytes = 4u;
+	stream = morph_md_stream_create(&opts, NULL, NULL);
+	if (!stream)
+		return 110;
+
+	rc = morph_md_stream_append(stream, "abcdef", strlen("abcdef"), 0);
+	if (rc != 0)
+		return 111;
+	if (morph_md_stream_get_stats(stream, &stats) != 0 || stats.finished)
+		return 112;
+	rc = morph_md_stream_append(stream, "\n", strlen("\n"), 1);
+	if (rc != 0)
+		return 113;
+	if (morph_md_stream_get_stats(stream, &stats) != 0 || !stats.finished)
+		return 114;
+
+	morph_md_stream_destroy(stream);
+	return 0;
+}
+
 int main(void)
 {
 	int rc;
@@ -504,6 +532,10 @@ int main(void)
 		return rc;
 
 	rc = test_footnotes_extension();
+	if (rc != 0)
+		return rc;
+
+	rc = test_tail_limit_does_not_finish_stream();
 	if (rc != 0)
 		return rc;
 
