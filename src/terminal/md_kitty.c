@@ -1,6 +1,8 @@
 #include "morph_markdown_kitty.h"
+#include "base/md_array.h"
 #include "base/md_buf.h"
 #include "base/md_error.h"
+#include "base/md_width.h"
 
 #include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
@@ -9,6 +11,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+struct table_cell_text {
+	char *text;
+};
+
+struct table_row_text {
+	struct md_array cells;
+};
 
 struct morph_md_kitty {
 	struct morph_md_kitty_options options;
@@ -265,39 +275,155 @@ static int render_task_item(struct morph_md_kitty *renderer, cmark_node *node)
 	return MD_OK;
 }
 
-static int render_table_row(cmark_node *row)
+static void table_row_cleanup(struct table_row_text *row)
 {
-	cmark_node *cell;
-	char *text;
+	struct table_cell_text *cell;
+	size_t i;
 
-	fputc('|', stdout);
-	for (cell = cmark_node_first_child(row); cell; cell = cmark_node_next(cell)) {
-		text = plain_text_dup(cell);
-		printf(" %s |", text ? text : "");
-		free(text);
+	for (i = 0; i < row->cells.len; i++) {
+		cell = md_array_get(&row->cells, i);
+		free(cell->text);
+	}
+	md_array_cleanup(&row->cells);
+}
+
+static void table_rows_cleanup(struct md_array *rows)
+{
+	struct table_row_text *row;
+	size_t i;
+
+	for (i = 0; i < rows->len; i++) {
+		row = md_array_get(rows, i);
+		table_row_cleanup(row);
+	}
+	md_array_cleanup(rows);
+}
+
+static int collect_table(cmark_node *node, struct md_array *rows,
+			 size_t *col_count)
+{
+	struct table_row_text *row_text;
+	struct table_cell_text *cell_text;
+	cmark_node *row;
+	cmark_node *cell;
+
+	md_array_init(rows, sizeof(struct table_row_text));
+	*col_count = 0;
+	for (row = cmark_node_first_child(node); row; row = cmark_node_next(row)) {
+		row_text = md_array_push(rows);
+		if (!row_text)
+			return MD_ERR_NOMEM;
+		md_array_init(&row_text->cells, sizeof(struct table_cell_text));
+		for (cell = cmark_node_first_child(row); cell; cell = cmark_node_next(cell)) {
+			cell_text = md_array_push(&row_text->cells);
+			if (!cell_text)
+				return MD_ERR_NOMEM;
+			cell_text->text = plain_text_dup(cell);
+			if (!cell_text->text)
+				return MD_ERR_NOMEM;
+		}
+		if (row_text->cells.len > *col_count)
+			*col_count = row_text->cells.len;
+	}
+	return MD_OK;
+}
+
+static int table_widths(struct md_array *rows, size_t col_count, int *widths)
+{
+	struct table_row_text *row;
+	struct table_cell_text *cell;
+	size_t r;
+	size_t c;
+	int width;
+
+	for (c = 0; c < col_count; c++)
+		widths[c] = 3;
+	for (r = 0; r < rows->len; r++) {
+		row = md_array_get(rows, r);
+		for (c = 0; c < row->cells.len; c++) {
+			cell = md_array_get(&row->cells, c);
+			width = md_utf8_display_width(cell->text);
+			if (width > widths[c])
+				widths[c] = width;
+		}
+	}
+	return MD_OK;
+}
+
+static void print_border(const char *left, const char *mid,
+			 const char *right, const int *widths,
+			 size_t col_count)
+{
+	size_t c;
+	int i;
+
+	fputs(left, stdout);
+	for (c = 0; c < col_count; c++) {
+		for (i = 0; i < widths[c] + 2; i++)
+			fputs("─", stdout);
+		fputs(c + 1u == col_count ? right : mid, stdout);
 	}
 	fputc('\n', stdout);
-	return MD_OK;
+}
+
+static void print_padded_cell(const char *text, int width)
+{
+	int used;
+	int i;
+
+	used = md_utf8_display_width(text);
+	printf(" %s", text ? text : "");
+	for (i = used; i < width; i++)
+		fputc(' ', stdout);
+	fputc(' ', stdout);
+}
+
+static void print_table_row(struct table_row_text *row, const int *widths,
+			    size_t col_count)
+{
+	struct table_cell_text *cell;
+	size_t c;
+
+	fputs("│", stdout);
+	for (c = 0; c < col_count; c++) {
+		cell = c < row->cells.len ? md_array_get(&row->cells, c) : NULL;
+		print_padded_cell(cell && cell->text ? cell->text : "", widths[c]);
+		fputs("│", stdout);
+	}
+	fputc('\n', stdout);
 }
 
 static int render_table(cmark_node *node)
 {
-	cmark_node *row;
-	int first;
+	struct table_row_text *row;
+	struct md_array rows;
+	size_t col_count;
+	size_t r;
+	int *widths;
+	int rc;
 
-	first = 1;
-	for (row = cmark_node_first_child(node); row; row = cmark_node_next(row)) {
-		(void)render_table_row(row);
-		if (first) {
-			fputs("|", stdout);
-			for (cmark_node *cell = cmark_node_first_child(row); cell;
-			     cell = cmark_node_next(cell))
-				fputs(" --- |", stdout);
-			fputc('\n', stdout);
-			first = 0;
-		}
+	rc = collect_table(node, &rows, &col_count);
+	if (rc != MD_OK) {
+		table_rows_cleanup(&rows);
+		return rc;
 	}
+	widths = calloc(col_count ? col_count : 1u, sizeof(*widths));
+	if (!widths) {
+		table_rows_cleanup(&rows);
+		return MD_ERR_NOMEM;
+	}
+	(void)table_widths(&rows, col_count, widths);
+	print_border("┌", "┬", "┐", widths, col_count);
+	for (r = 0; r < rows.len; r++) {
+		row = md_array_get(&rows, r);
+		print_table_row(row, widths, col_count);
+		if (r == 0)
+			print_border("├", "┼", "┤", widths, col_count);
+	}
+	print_border("└", "┴", "┘", widths, col_count);
 	fputc('\n', stdout);
+	free(widths);
+	table_rows_cleanup(&rows);
 	return MD_OK;
 }
 

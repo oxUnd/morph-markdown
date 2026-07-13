@@ -1,5 +1,6 @@
 #include "morph_markdown_stream.h"
 #include "base/md_strmap.h"
+#include "base/md_width.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -487,6 +488,17 @@ static int test_tail_limit_does_not_finish_stream(void)
 	return 0;
 }
 
+static int test_display_width_foundation(void)
+{
+	if (md_utf8_display_width("abc") != 3)
+		return 120;
+	if (md_utf8_display_width("中文") != 4)
+		return 121;
+	if (md_utf8_display_width("a😀") != 3)
+		return 122;
+	return 0;
+}
+
 int main(void)
 {
 	int rc;
@@ -536,6 +548,10 @@ int main(void)
 		return rc;
 
 	rc = test_tail_limit_does_not_finish_stream();
+	if (rc != 0)
+		return rc;
+
+	rc = test_display_width_foundation();
 	if (rc != 0)
 		return rc;
 
