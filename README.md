@@ -43,5 +43,25 @@ emits JSON IR patches. iOS and Android render those patches with native views.
 - Full CommonMark/GFM corpus automation is not wired into CTest yet.
 - Dedicated footnote presentation nodes are not modeled yet.
 
+## Kitty Demo
+
+Build:
+
+```sh
+cmake -S . -B build
+cmake --build build
+```
+
+Run inside Kitty or a terminal compatible with Kitty graphics protocol:
+
+```sh
+./build/morph-md-kitty-demo
+```
+
+The demo simulates streamed model chunks, clears and redraws the Markdown view,
+and renders LaTeX through `vendor/mathjax-c` with Kitty graphics protocol.
+The Markdown fixture behind the demo is mirrored in
+`demo/streaming_math.md` for manual inspection and future mobile migration.
+
 Functions should stay below 200 lines. Keep new generic data structures in
 `src/base/` instead of embedding local one-off containers in feature files.
