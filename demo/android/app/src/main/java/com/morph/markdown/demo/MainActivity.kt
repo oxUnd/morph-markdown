@@ -10,6 +10,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TableLayout
@@ -111,21 +112,38 @@ class MainActivity : Activity() {
 		val children = node.optJSONArray("children") ?: return
 		for (i in 0 until children.length()) {
 			val item = children.getJSONObject(i)
-			val literal = plainText(item).trim()
-			val checked = literal.startsWith("[x]") || literal.startsWith("[X]")
-			val unchecked = literal.startsWith("[ ]")
-			val prefix = when {
-				checked -> "- [x] "
-				unchecked -> "- [ ] "
-				else -> "- "
+			if (item.optString("kind") == "tasklist") {
+				parent.addView(taskItem(item))
+			} else {
+				parent.addView(text("- " + plainText(item).trim(), 16f))
 			}
-			val bodyText = literal
-				.removePrefix("[x]")
-				.removePrefix("[X]")
-				.removePrefix("[ ]")
-				.trim()
-			parent.addView(text(prefix + bodyText, 16f))
 		}
+	}
+
+	private fun taskItem(item: JSONObject): LinearLayout {
+		val row = LinearLayout(this).apply {
+			orientation = LinearLayout.HORIZONTAL
+			setPadding(0, 0, 0, dp(2))
+		}
+		row.addView(CheckBox(this).apply {
+			isChecked = item.optBoolean("checked", false)
+			isEnabled = false
+			minWidth = 0
+			minHeight = 0
+			setPadding(0, 0, dp(4), 0)
+		})
+		row.addView(inlineGroup(firstParagraphChildren(item)))
+		return row
+	}
+
+	private fun firstParagraphChildren(item: JSONObject): JSONArray? {
+		val children = item.optJSONArray("children") ?: return null
+		for (i in 0 until children.length()) {
+			val child = children.getJSONObject(i)
+			if (child.optString("kind") == "paragraph")
+				return child.optJSONArray("children")
+		}
+		return children
 	}
 
 	private fun heading(node: JSONObject): TextView {

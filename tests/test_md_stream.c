@@ -210,7 +210,8 @@ static int test_sourcepos_image_and_tasklist(void)
 	if (!contains(snapshot, "\"sourcepos\"") ||
 	    !contains(snapshot, "\"image\"") ||
 	    !contains(snapshot, "file:///tmp/a.png") ||
-	    !contains(snapshot, "\"tasklist\"")) {
+	    !contains(snapshot, "\"tasklist\"") ||
+	    !contains(snapshot, "\"checked\":true")) {
 		fprintf(stderr, "%s\n", snapshot);
 		morph_md_free(snapshot);
 		morph_md_stream_destroy(stream);

@@ -7,6 +7,7 @@
 
 #include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
+#include <tasklist.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -124,15 +125,25 @@ static int append_node_attrs(struct md_buf *out, cmark_node *node)
 	const char *url;
 	const char *title;
 	const char *info;
+	const char *kind;
 	int rc;
 
 	type = cmark_node_get_type(node);
+	kind = cmark_node_get_type_string(node);
 	rc = append_sourcepos(out, node);
 	if (rc != 0)
 		return rc;
 
 	if (type == CMARK_NODE_HEADING) {
 		rc = md_buf_printf(out, ",\"level\":%d", cmark_node_get_heading_level(node));
+		if (rc != 0)
+			return rc;
+	}
+
+	if (kind && strcmp(kind, "tasklist") == 0) {
+		rc = md_buf_printf(out, ",\"checked\":%s",
+				   cmark_gfm_extensions_get_tasklist_item_checked(node) ?
+					   "true" : "false");
 		if (rc != 0)
 			return rc;
 	}
