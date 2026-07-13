@@ -30,24 +30,38 @@ import org.json.JSONObject
 class MainActivity : Activity() {
 	private val handler = Handler(Looper.getMainLooper())
 	private val markdown = StringBuilder()
+	private lateinit var root: LinearLayout
 	private lateinit var body: LinearLayout
+	private lateinit var controls: LinearLayout
 	private lateinit var scroll: ScrollView
 	private lateinit var fontFile: File
 	private lateinit var chunks: List<String>
 	private var chunkIndex = 0
 	private var insetTop = 0
 	private var insetBottom = 0
+	private var headingMode = 0
+	private var tabMode = 1
+	private var tableWrap = true
+	private var compactCode = false
+	private var renderConfig = MarkdownRenderPresets.Normal
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 		fontFile = copyFont()
 		chunks = createChunks(createDemoImage())
+		root = LinearLayout(this).apply {
+			orientation = LinearLayout.VERTICAL
+			setBackgroundColor(0xfffafaf7.toInt())
+		}
+		controls = LinearLayout(this).apply {
+			orientation = LinearLayout.HORIZONTAL
+		}
 		scroll = ScrollView(this).apply {
 			clipToPadding = true
 			setBackgroundColor(0xfffafaf7.toInt())
 		}
-		ViewCompat.setOnApplyWindowInsetsListener(scroll) { _, insets ->
+		ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
 			val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
 			insetTop = bars.top
 			insetBottom = bars.bottom
@@ -64,10 +78,26 @@ class MainActivity : Activity() {
 				ViewGroup.LayoutParams.WRAP_CONTENT
 			)
 		)
-		setContentView(scroll)
-		scroll.requestApplyInsets()
+		root.addView(
+			controls,
+			LinearLayout.LayoutParams(
+				ViewGroup.LayoutParams.MATCH_PARENT,
+				ViewGroup.LayoutParams.WRAP_CONTENT
+			)
+		)
+		root.addView(
+			scroll,
+			LinearLayout.LayoutParams(
+				ViewGroup.LayoutParams.MATCH_PARENT,
+				0,
+				1f
+			)
+		)
+		setContentView(root)
+		root.requestApplyInsets()
 		applySafePadding()
-		render()
+		rebuildControls()
+		render(false)
 		pump()
 	}
 
@@ -92,8 +122,8 @@ class MainActivity : Activity() {
 			"> A block quote can arrive while the model is still generating. ",
 			"It should stay readable and not collapse the layout.\n\n",
 			"```kotlin\n",
-			"val engine = MarkdownNative.snapshot(markdown)\n",
-			"val pixels = MarkdownNative.renderLatex(font, \"x^2\", false, size)\n",
+			"val engine\t= MarkdownNative.snapshot(markdown)\n",
+			"val pixels\t= MarkdownNative.renderLatex(font, \"x^2\", false, size)\n",
 			"```\n\n",
 			"---\n\n",
 			"## Dynamic table\n\n",
@@ -107,6 +137,7 @@ class MainActivity : Activity() {
 			"| valid image ![generated]($validUri) | decoded bitmap in cell |\n",
 			"| invalid image ![missing]($invalidUri) | error placeholder in cell |\n",
 			"| code `cell.value()` and [link](https://example.com) | mixed inline |\n",
+			"| tab text | key\tvalue\twith tabs |\n",
 			"| long cell | this is a deliberately long table value that should wrap inside the cell while the table can still scroll horizontally |\n\n",
 			"HTML sample: <span>treated as text by policy</span>\n\n",
 			"Valid image:\n\n![generated demo]($validUri \"generated\")\n\n",
@@ -143,27 +174,68 @@ class MainActivity : Activity() {
 	}
 
 	private fun applySafePadding() {
-		scroll.setPadding(0, insetTop, 0, insetBottom)
-		body.setPadding(dp(20), dp(20), dp(20), dp(32))
+		controls.setPadding(dp(12), insetTop + dp(8), dp(12), dp(8))
+		scroll.setPadding(0, 0, 0, insetBottom)
+		body.setPadding(dp(20), dp(16), dp(20), dp(32))
 	}
 
 	private fun pump() {
 		if (chunkIndex >= chunks.size) return
 		markdown.append(chunks[chunkIndex++])
-		render()
+		render(true)
 		handler.postDelayed({ pump() }, 420L)
 	}
 
-	private fun render() {
+	private fun rebuildControls() {
+		renderConfig = currentConfig()
+		controls.removeAllViews()
+		controls.addView(control("H ${headingLabel()}") {
+			headingMode = (headingMode + 1) % 3
+			rebuildControls()
+			render(false)
+		})
+		controls.addView(control("Tab ${tabSize()}") {
+			tabMode = (tabMode + 1) % 3
+			rebuildControls()
+			render(false)
+		})
+		controls.addView(control(if (tableWrap) "Table wrap" else "Table nowrap") {
+			tableWrap = !tableWrap
+			rebuildControls()
+			render(false)
+		})
+		controls.addView(control(if (compactCode) "Code compact" else "Code normal") {
+			compactCode = !compactCode
+			rebuildControls()
+			render(false)
+		})
+	}
+
+	private fun currentConfig(): MarkdownRenderConfig {
+		var config = when (headingMode) {
+			1 -> MarkdownRenderPresets.LargeHeadings
+			2 -> MarkdownRenderPresets.CompactHeadings
+			else -> MarkdownRenderPresets.Normal
+		}
+		val tabs = tabSize()
+		config = config.copy(tabSize = tabs, codeBlockTabSize = tabs)
+		if (!tableWrap) config = config.copy(tableCellWrap = false)
+		if (compactCode) {
+			config = config.copy(codeBlockTextSizeSp = 13f, inlineCodeTextSizeSp = 14f)
+		}
+		return config
+	}
+
+	private fun render(autoScroll: Boolean) {
 		body.removeAllViews()
 		val raw = MarkdownNative.snapshot(markdown.toString())
 		if (raw == null) {
-			body.addView(text("snapshot failed", 16f))
+			body.addView(text("snapshot failed", renderConfig.bodyTextSizeSp))
 			return
 		}
 		val root = JSONObject(raw)
 		renderChildren(root.optJSONArray("children"), body)
-		scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+		if (autoScroll) scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
 	}
 
 	private fun renderChildren(children: JSONArray?, parent: LinearLayout) {
@@ -188,7 +260,7 @@ class MainActivity : Activity() {
 			else -> {
 				val children = node.optJSONArray("children")
 				if (children != null) renderChildren(children, parent)
-				else parent.addView(text(node.optString("literal"), 16f))
+				else parent.addView(text(expandTabs(node.optString("literal"), renderConfig.tabSize), renderConfig.bodyTextSizeSp))
 			}
 		}
 	}
@@ -212,14 +284,14 @@ class MainActivity : Activity() {
 			orientation = LinearLayout.VERTICAL
 			setPadding(0, 0, 0, dp(2))
 		}
-		group.addView(text(prefix + firstParagraphText(item), 16f))
+		group.addView(text(expandTabs(prefix + firstParagraphText(item), renderConfig.tabSize), renderConfig.bodyTextSizeSp))
 		val children = item.optJSONArray("children") ?: return group
 		for (i in 0 until children.length()) {
 			val child = children.getJSONObject(i)
 			if (child.optString("kind") == "list") {
 				val nested = LinearLayout(this).apply {
 					orientation = LinearLayout.VERTICAL
-					setPadding(dp(20), 0, 0, 0)
+					setPadding(dp(renderConfig.listIndentDp), 0, 0, 0)
 				}
 				renderList(child, nested)
 				group.addView(nested)
@@ -266,7 +338,7 @@ class MainActivity : Activity() {
 
 	private fun heading(node: JSONObject): TextView {
 		val level = node.optInt("level", 1).coerceIn(1, 6)
-		return text(plainText(node), (26 - level * 2).toFloat()).apply {
+		return text(plainText(node), renderConfig.headingSize(level)).apply {
 			typeface = Typeface.DEFAULT_BOLD
 			setPadding(0, dp(8), 0, dp(10))
 		}
@@ -304,8 +376,8 @@ class MainActivity : Activity() {
 			background = fill(0xff767676.toInt())
 			layoutParams = LinearLayout.LayoutParams(dp(4), ViewGroup.LayoutParams.MATCH_PARENT)
 		})
-		box.addView(text(plainText(node).trim(), 16f).apply {
-			setPadding(dp(12), 0, 0, 0)
+		box.addView(text(expandTabs(plainText(node).trim(), renderConfig.tabSize), renderConfig.bodyTextSizeSp).apply {
+			setPadding(dp(renderConfig.blockquoteIndentDp), 0, 0, 0)
 		})
 		return box
 	}
@@ -316,7 +388,7 @@ class MainActivity : Activity() {
 			overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
 			setPadding(0, dp(12), 0, dp(14))
 		}
-		val table = MarkdownTableView(this)
+		val table = MarkdownTableView(this, renderConfig)
 		val rows = node.optJSONArray("children") ?: return scroller
 		for (i in 0 until rows.length()) {
 			val rowNode = rows.getJSONObject(i)
@@ -332,20 +404,19 @@ class MainActivity : Activity() {
 				table.addCell(cell)
 			}
 		}
-		scroller.addView(
-			table,
-			ViewGroup.LayoutParams(
-				ViewGroup.LayoutParams.WRAP_CONTENT,
-				ViewGroup.LayoutParams.WRAP_CONTENT
-			)
+		table.layoutParams = ViewGroup.LayoutParams(
+			ViewGroup.LayoutParams.WRAP_CONTENT,
+			ViewGroup.LayoutParams.WRAP_CONTENT
 		)
+		if (!renderConfig.tableHorizontalScroll) return table
+		scroller.addView(table)
 		return scroller
 	}
 
 	private fun mathView(latex: String, display: Boolean): View {
-		val fontSize = 16f * resources.displayMetrics.scaledDensity
+		val fontSize = renderConfig.mathSize() * resources.displayMetrics.scaledDensity
 		val data = MarkdownNative.renderLatex(fontFile.absolutePath, latex, display, fontSize)
-		if (data == null || data.size < 3) return text(latex, 16f)
+		if (data == null || data.size < 3) return text(latex, renderConfig.bodyTextSizeSp)
 		val width = data[0]
 		val height = data[1]
 		val pixels = data.copyOfRange(2, data.size)
@@ -362,7 +433,7 @@ class MainActivity : Activity() {
 		val path = if (url.startsWith("file://")) url.removePrefix("file://") else url
 		val bitmap = BitmapFactory.decodeFile(path)
 		if (bitmap == null) {
-			return text("invalid image: $url", 14f).apply {
+			return text("invalid image: $url", renderConfig.inlineCodeTextSizeSp).apply {
 				setPadding(dp(12), dp(10), dp(12), dp(10))
 				background = border(false)
 			}
@@ -370,36 +441,97 @@ class MainActivity : Activity() {
 		return ImageView(this).apply {
 			setImageBitmap(bitmap)
 			adjustViewBounds = true
-			maxWidth = dp(320)
-			maxHeight = dp(180)
+			maxWidth = dp(renderConfig.imageMaxWidthDp)
+			maxHeight = dp(renderConfig.imageMaxHeightDp)
 			setPadding(0, dp(6), 0, dp(6))
 		}
 	}
 
 	private fun inlineCode(code: String, tableCell: Boolean = false): TextView {
-		return text(code, 15f).apply {
+		return text(expandTabs(code, renderConfig.tabSize), renderConfig.inlineCodeTextSizeSp).apply {
 			typeface = Typeface.MONOSPACE
-			if (tableCell) maxWidth = dp(220)
+			if (tableCell && renderConfig.tableCellWrap) {
+				maxWidth = dp((renderConfig.tableCellMaxWidthDp * 0.78f).toInt())
+			}
 			setPadding(dp(5), dp(2), dp(5), dp(2))
 			background = fill(0xffeeeeea.toInt())
 		}
 	}
 
 	private fun cellText(value: String, tableCell: Boolean): TextView {
-		return text(value, 16f).apply {
-			if (tableCell) {
-				maxWidth = dp(240)
+		return text(expandTabs(value, renderConfig.tabSize), renderConfig.bodyTextSizeSp).apply {
+			if (tableCell && renderConfig.tableCellWrap) {
+				maxWidth = dp((renderConfig.tableCellMaxWidthDp * 0.86f).toInt())
 				setSingleLine(false)
+			} else if (tableCell) {
+				setSingleLine(true)
 			}
 		}
 	}
 
 	private fun codeBlock(code: String): TextView {
-		return text(code, 14f).apply {
+		return text(expandTabs(code, renderConfig.codeBlockTabSize), renderConfig.codeBlockTextSizeSp).apply {
 			typeface = Typeface.MONOSPACE
 			setPadding(dp(12), dp(10), dp(12), dp(10))
 			background = fill(0xffeeeeea.toInt())
 		}
+	}
+
+	private fun control(label: String, action: () -> Unit): TextView {
+		return text(label, 13f).apply {
+			setTextColor(0xff202020.toInt())
+			setPadding(dp(10), dp(7), dp(10), dp(7))
+			background = border(false)
+			setOnClickListener { action() }
+			layoutParams = LinearLayout.LayoutParams(
+				ViewGroup.LayoutParams.WRAP_CONTENT,
+				ViewGroup.LayoutParams.WRAP_CONTENT
+			).apply {
+				setMargins(0, 0, dp(8), 0)
+			}
+		}
+	}
+
+	private fun headingLabel(): String {
+		return when (headingMode) {
+			1 -> "large"
+			2 -> "compact"
+			else -> "normal"
+		}
+	}
+
+	private fun tabSize(): Int {
+		return when (tabMode) {
+			0 -> 2
+			2 -> 8
+			else -> 4
+		}
+	}
+
+	private fun expandTabs(value: String, tabSize: Int): String {
+		if (!value.contains('\t')) return value
+		val out = StringBuilder(value.length)
+		var col = 0
+		for (ch in value) {
+			when (ch) {
+				'\t' -> {
+					val spaces = tabSize - (col % tabSize)
+					repeat(spaces) {
+						out.append(' ')
+						col += 1
+					}
+				}
+				'\n' -> {
+					out.append(ch)
+					col = 0
+				}
+				else -> {
+					out.append(ch)
+					col += 1
+				}
+			}
+		}
+		return out.toString()
 	}
 
 	private fun plainText(node: JSONObject): String {
@@ -510,7 +642,10 @@ class InlineLayout(context: android.content.Context) : ViewGroup(context) {
 	}
 }
 
-class MarkdownTableView(context: android.content.Context) : ViewGroup(context) {
+class MarkdownTableView(
+	context: android.content.Context,
+	private val config: MarkdownRenderConfig
+) : ViewGroup(context) {
 	private data class Cell(val row: Int, val col: Int, val header: Boolean, val view: View)
 
 	private val cells = mutableListOf<Cell>()
@@ -549,9 +684,14 @@ class MarkdownTableView(context: android.content.Context) : ViewGroup(context) {
 		repeat(rows) { rowHeights.add(0) }
 
 		for (cell in cells) {
+			val widthSpec = if (config.tableCellWrap) {
+				MeasureSpec.makeMeasureSpec(cellMaxWidth(), MeasureSpec.AT_MOST)
+			} else {
+				MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+			}
 			measureChild(
 				cell.view,
-				MeasureSpec.makeMeasureSpec(cellMaxWidth(), MeasureSpec.AT_MOST),
+				widthSpec,
 				heightMeasureSpec
 			)
 			colWidths[cell.col] = maxOf(colWidths[cell.col], cell.view.measuredWidth)
@@ -612,6 +752,6 @@ class MarkdownTableView(context: android.content.Context) : ViewGroup(context) {
 	}
 
 	private fun cellMaxWidth(): Int {
-		return (context.resources.displayMetrics.density * 280f + 0.5f).toInt()
+		return (context.resources.displayMetrics.density * config.tableCellMaxWidthDp + 0.5f).toInt()
 	}
 }
