@@ -15,7 +15,10 @@ static const char *demo_chunks[] = {
 	" and display math follows.\n\n",
 	"$$\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}$$\n\n",
 	"- GFM task list works\n- [x] parse Markdown\n- [ ] migrate to mobile\n\n",
-	"| feature | status |\n|---|---|\n| CommonMark/GFM | ok |\n| MathJax-C Kitty | ok |\n\n",
+	"| feature | status |\n",
+	"|---|---|\n",
+	"| CommonMark/GFM | ok |\n",
+	"| MathJax-C Kitty | ok |\n\n",
 	"Image placeholder: ![demo](file:///tmp/demo.png)\n"
 };
 

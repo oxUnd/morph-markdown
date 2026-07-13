@@ -60,6 +60,8 @@ Run inside Kitty or a terminal compatible with Kitty graphics protocol:
 
 The demo simulates streamed model chunks, clears and redraws the Markdown view,
 and renders LaTeX through `vendor/mathjax-c` with Kitty graphics protocol.
+The table fixture is chunked by header, separator, and data rows so the terminal
+view shows the table growing row by row as model output streams in.
 The Markdown fixture behind the demo is mirrored in
 `demo/streaming_math.md` for manual inspection and future mobile migration.
 
