@@ -7,5 +7,6 @@
 #define MD_ERR_INVALID (-EINVAL)
 #define MD_ERR_NOMEM (-ENOMEM)
 #define MD_ERR_PARSE (-1001)
+#define MD_ERR_SKIP (-1002)
 
 #endif

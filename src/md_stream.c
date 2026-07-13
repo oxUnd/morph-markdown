@@ -20,6 +20,11 @@ struct sealed_block {
 	uint64_t hash;
 };
 
+struct render_options {
+	int enable_math;
+	int html_policy;
+};
+
 struct morph_md_stream {
 	struct morph_md_options options;
 	morph_md_patch_cb callback;
@@ -32,6 +37,10 @@ struct morph_md_stream {
 	uint64_t next_id;
 	int finished;
 };
+
+static void emit_patch(struct morph_md_stream *stream,
+		       enum morph_md_patch_op op,
+		       const char *json);
 
 static int json_escape(struct md_buf *out, const char *text, size_t len)
 {
@@ -97,6 +106,17 @@ static int append_attr_string(struct md_buf *out, const char *name,
 	return json_escape(out, value, strlen(value));
 }
 
+static int append_sourcepos(struct md_buf *out, cmark_node *node)
+{
+	if (cmark_node_get_start_line(node) <= 0)
+		return 0;
+	return md_buf_printf(out, ",\"sourcepos\":\"%d:%d-%d:%d\"",
+			     cmark_node_get_start_line(node),
+			     cmark_node_get_start_column(node),
+			     cmark_node_get_end_line(node),
+			     cmark_node_get_end_column(node));
+}
+
 static int append_node_attrs(struct md_buf *out, cmark_node *node)
 {
 	cmark_node_type type;
@@ -107,15 +127,9 @@ static int append_node_attrs(struct md_buf *out, cmark_node *node)
 	int rc;
 
 	type = cmark_node_get_type(node);
-	if (cmark_node_get_start_line(node) > 0) {
-		rc = md_buf_printf(out, ",\"sourcepos\":\"%d:%d-%d:%d\"",
-				   cmark_node_get_start_line(node),
-				   cmark_node_get_start_column(node),
-				   cmark_node_get_end_line(node),
-				   cmark_node_get_end_column(node));
-		if (rc != 0)
-			return rc;
-	}
+	rc = append_sourcepos(out, node);
+	if (rc != 0)
+		return rc;
 
 	if (type == CMARK_NODE_HEADING) {
 		rc = md_buf_printf(out, ",\"level\":%d", cmark_node_get_heading_level(node));
@@ -142,9 +156,9 @@ static int append_node_attrs(struct md_buf *out, cmark_node *node)
 	return append_attr_string(out, "info", info);
 }
 
-static int append_leaf_node(struct md_buf *out, const char *kind,
-			    const char *literal, size_t len,
-			    uint64_t *next_id)
+static int append_leaf_node_ex(struct md_buf *out, const char *kind,
+			       const char *literal, size_t len,
+			       cmark_node *source, uint64_t *next_id)
 {
 	int rc;
 
@@ -155,6 +169,11 @@ static int append_leaf_node(struct md_buf *out, const char *kind,
 	rc = json_escape(out, kind, strlen(kind));
 	if (rc != 0)
 		return rc;
+	if (source) {
+		rc = append_sourcepos(out, source);
+		if (rc != 0)
+			return rc;
+	}
 	rc = md_buf_puts(out, ",\"literal\":");
 	if (rc != 0)
 		return rc;
@@ -162,6 +181,13 @@ static int append_leaf_node(struct md_buf *out, const char *kind,
 	if (rc != 0)
 		return rc;
 	return md_buf_puts(out, ",\"children\":[]}");
+}
+
+static int append_leaf_node(struct md_buf *out, const char *kind,
+			    const char *literal, size_t len,
+			    uint64_t *next_id)
+{
+	return append_leaf_node_ex(out, kind, literal, len, NULL, next_id);
 }
 
 static size_t find_delim_close(const char *text, size_t len, size_t start,
@@ -281,10 +307,21 @@ static int append_math_text_nodes(struct md_buf *out, const char *text,
 }
 
 static int append_json_children(struct md_buf *out, cmark_node *node,
-				uint64_t *next_id, int enable_math);
+				uint64_t *next_id,
+				const struct render_options *opts);
+
+static int should_skip_node(cmark_node *node, const struct render_options *opts)
+{
+	cmark_node_type type;
+
+	type = cmark_node_get_type(node);
+	return (type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE) &&
+	       opts->html_policy == MORPH_MD_HTML_STRIP;
+}
 
 static int append_json_node(struct md_buf *out, cmark_node *node,
-			    uint64_t *next_id, int enable_math)
+			    uint64_t *next_id,
+			    const struct render_options *opts)
 {
 	cmark_node *child;
 	int first;
@@ -309,33 +346,43 @@ static int append_json_node(struct md_buf *out, cmark_node *node,
 
 	first = 1;
 	for (child = cmark_node_first_child(node); child; child = cmark_node_next(child)) {
-		if (!first) {
-			rc = md_buf_append(out, ",", 1u);
-			if (rc != 0)
-				return rc;
-		}
-		first = 0;
-		rc = append_json_children(out, child, next_id, enable_math);
+		if (should_skip_node(child, opts))
+			continue;
+		if (!first && md_buf_append(out, ",", 1u) != 0)
+			return MD_ERR_NOMEM;
+		rc = append_json_children(out, child, next_id, opts);
 		if (rc != 0)
 			return rc;
+		first = 0;
 	}
 
 	return md_buf_puts(out, "]}");
 }
 
 static int append_json_children(struct md_buf *out, cmark_node *node,
-				uint64_t *next_id, int enable_math)
+				uint64_t *next_id,
+				const struct render_options *opts)
 {
+	cmark_node_type type;
 	const char *literal;
 
+	type = cmark_node_get_type(node);
 	literal = cmark_node_get_literal(node);
-	if (enable_math && cmark_node_get_type(node) == CMARK_NODE_TEXT &&
+	if ((type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE) &&
+	    opts->html_policy == MORPH_MD_HTML_STRIP)
+		return MD_ERR_SKIP;
+	if ((type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE) &&
+	    opts->html_policy == MORPH_MD_HTML_TEXT)
+		return append_leaf_node_ex(out, "text", literal ? literal : "",
+					   literal ? strlen(literal) : 0u,
+					   node, next_id);
+	if (opts->enable_math && type == CMARK_NODE_TEXT &&
 	    literal && (strchr(literal, '$') || strstr(literal, "\\("))) {
 		return append_math_text_nodes(out, literal, strlen(literal),
 					      next_id);
 	}
 
-	return append_json_node(out, node, next_id, enable_math);
+	return append_json_node(out, node, next_id, opts);
 }
 
 static void attach_extension(cmark_parser *parser, const char *name)
@@ -366,6 +413,7 @@ static cmark_node *parse_markdown(const char *md, size_t len, int enable_gfm)
 		attach_extension(parser, "autolink");
 		attach_extension(parser, "tagfilter");
 		attach_extension(parser, "tasklist");
+		attach_extension(parser, "footnotes");
 	}
 
 	cmark_parser_feed(parser, md ? md : "", len);
@@ -375,7 +423,8 @@ static cmark_node *parse_markdown(const char *md, size_t len, int enable_gfm)
 }
 
 static char *render_ir_json(const char *md, size_t len, int enable_gfm,
-			    int enable_math, uint64_t *next_id)
+			    const struct render_options *opts,
+			    uint64_t *next_id)
 {
 	struct md_buf out;
 	cmark_node *doc;
@@ -386,7 +435,7 @@ static char *render_ir_json(const char *md, size_t len, int enable_gfm,
 		return NULL;
 
 	md_buf_init(&out);
-	rc = append_json_node(&out, doc, next_id, enable_math);
+	rc = append_json_node(&out, doc, next_id, opts);
 	cmark_node_free(doc);
 	if (rc != 0) {
 		md_buf_cleanup(&out);
@@ -394,6 +443,60 @@ static char *render_ir_json(const char *md, size_t len, int enable_gfm,
 	}
 
 	return md_buf_detach(&out);
+}
+
+static void stream_render_options(const struct morph_md_stream *stream,
+				  struct render_options *opts)
+{
+	opts->enable_math = stream->options.enable_math;
+	opts->html_policy = stream->options.html_policy;
+}
+
+static char *render_node_json(cmark_node *node,
+			      const struct render_options *opts,
+			      uint64_t *next_id)
+{
+	struct md_buf out;
+	int rc;
+
+	md_buf_init(&out);
+	rc = append_json_node(&out, node, next_id, opts);
+	if (rc != 0) {
+		md_buf_cleanup(&out);
+		return NULL;
+	}
+	return md_buf_detach(&out);
+}
+
+static int emit_top_level_inserts(struct morph_md_stream *stream,
+				  const char *md, size_t len,
+				  uint64_t *next_id)
+{
+	struct render_options opts;
+	cmark_node *doc;
+	cmark_node *child;
+	char *json;
+
+	stream_render_options(stream, &opts);
+	doc = parse_markdown(md, len, stream->options.enable_gfm);
+	if (!doc)
+		return MD_ERR_PARSE;
+
+	for (child = cmark_node_first_child(doc); child;
+	     child = cmark_node_next(child)) {
+		if (should_skip_node(child, &opts))
+			continue;
+		json = render_node_json(child, &opts, next_id);
+		if (!json) {
+			cmark_node_free(doc);
+			return MD_ERR_NOMEM;
+		}
+		emit_patch(stream, MORPH_MD_PATCH_INSERT, json);
+		free(json);
+	}
+
+	cmark_node_free(doc);
+	return MD_OK;
 }
 
 static void emit_patch(struct morph_md_stream *stream,
@@ -526,7 +629,6 @@ static int shift_tail(struct morph_md_stream *stream, size_t prefix_len)
 static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
 {
 	struct sealed_block *block;
-	char *json;
 	uint64_t next_id;
 	int rc;
 
@@ -534,15 +636,13 @@ static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
 		return 0;
 
 	next_id = stream->next_id;
-	json = render_ir_json(stream->tail.data, prefix_len,
-			      stream->options.enable_gfm,
-			      stream->options.enable_math, &next_id);
-	if (!json)
-		return MD_ERR_NOMEM;
+	rc = emit_top_level_inserts(stream, stream->tail.data, prefix_len,
+				    &next_id);
+	if (rc != MD_OK)
+		return rc;
 
 	block = md_array_push(&stream->sealed_blocks);
 	if (!block) {
-		free(json);
 		return MD_ERR_NOMEM;
 	}
 	block->offset = stream->sealed.len;
@@ -552,14 +652,11 @@ static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
 	rc = md_buf_append(&stream->sealed, stream->tail.data, prefix_len);
 	if (rc == 0)
 		rc = shift_tail(stream, prefix_len);
-	if (rc == 0)
-		emit_patch(stream, MORPH_MD_PATCH_INSERT, json);
 	if (rc == 0) {
 		stream->next_id = next_id;
 		rc = emit_seal_patch(stream, block);
 	}
 
-	free(json);
 	return rc;
 }
 
@@ -567,6 +664,7 @@ static int emit_pending(struct morph_md_stream *stream)
 {
 	char *json;
 	uint64_t next_id;
+	struct render_options opts;
 
 	if (stream->tail.len == 0) {
 		free(stream->pending_json);
@@ -575,9 +673,10 @@ static int emit_pending(struct morph_md_stream *stream)
 	}
 
 	next_id = stream->next_id;
+	stream_render_options(stream, &opts);
 	json = render_ir_json(stream->tail.data, stream->tail.len,
 			      stream->options.enable_gfm,
-			      stream->options.enable_math, &next_id);
+			      &opts, &next_id);
 	if (!json)
 		return MD_ERR_NOMEM;
 
@@ -705,6 +804,7 @@ char *morph_md_stream_snapshot(struct morph_md_stream *stream)
 	struct md_buf all;
 	char *json;
 	uint64_t next_id;
+	struct render_options opts;
 
 	if (!stream)
 		return NULL;
@@ -718,10 +818,25 @@ char *morph_md_stream_snapshot(struct morph_md_stream *stream)
 	}
 
 	next_id = 1u;
+	stream_render_options(stream, &opts);
 	json = render_ir_json(all.data, all.len, stream->options.enable_gfm,
-			      stream->options.enable_math, &next_id);
+			      &opts, &next_id);
 	md_buf_cleanup(&all);
 	return json;
+}
+
+int morph_md_stream_get_stats(struct morph_md_stream *stream,
+			      struct morph_md_stats *stats)
+{
+	if (!stream || !stats)
+		return MD_ERR_INVALID;
+
+	stats->sealed_bytes = stream->sealed.len;
+	stats->tail_bytes = stream->tail.len;
+	stats->utf8_pending_bytes = stream->utf8_pending.len;
+	stats->sealed_blocks = stream->sealed_blocks.len;
+	stats->finished = stream->finished;
+	return MD_OK;
 }
 
 void morph_md_stream_destroy(struct morph_md_stream *stream)

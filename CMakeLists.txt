@@ -56,6 +56,7 @@ option(MORPH_MARKDOWN_BUILD_TESTS "Build markdown-render tests" ON)
 
 if(MORPH_MARKDOWN_BUILD_TESTS)
 	enable_testing()
+	find_package(Python3 QUIET COMPONENTS Interpreter)
 
 	add_executable(test_md_stream
 		tests/test_md_stream.c
@@ -63,4 +64,22 @@ if(MORPH_MARKDOWN_BUILD_TESTS)
 	target_link_libraries(test_md_stream PRIVATE morph-markdown-render)
 
 	add_test(NAME test_md_stream COMMAND test_md_stream)
+
+	if(Python3_Interpreter_FOUND)
+		add_test(
+			NAME cmark_gfm_commonmark_spec
+			COMMAND ${Python3_EXECUTABLE}
+				${cmark-gfm_SOURCE_DIR}/test/spec_tests.py
+				-p ${cmark-gfm_BINARY_DIR}/src/cmark-gfm
+				-s ${cmark-gfm_SOURCE_DIR}/test/spec.txt
+		)
+		add_test(
+			NAME cmark_gfm_extensions_spec
+			COMMAND ${Python3_EXECUTABLE}
+				${cmark-gfm_SOURCE_DIR}/test/spec_tests.py
+				-p ${cmark-gfm_BINARY_DIR}/src/cmark-gfm
+				-s ${cmark-gfm_SOURCE_DIR}/test/extensions.txt
+				--extensions "table strikethrough autolink tagfilter footnotes tasklist"
+		)
+	endif()
 endif()

@@ -282,11 +282,36 @@ static int test_insert_ids_advance(void)
 	return 0;
 }
 
+static int test_per_block_insert_patches(void)
+{
+	struct patch_counter counter = {0};
+	struct morph_md_options opts = {0};
+	struct morph_md_stream *stream;
+	int rc;
+
+	opts.enable_gfm = 1;
+	stream = morph_md_stream_create(&opts, on_patch, &counter);
+	if (!stream)
+		return 90;
+
+	rc = morph_md_stream_append(stream, "# A\n\nB\n\n", strlen("# A\n\nB\n\n"), 0);
+	if (rc != 0)
+		return 91;
+	if (counter.inserts != 2 || counter.seals != 1) {
+		morph_md_stream_destroy(stream);
+		return 92;
+	}
+
+	morph_md_stream_destroy(stream);
+	return 0;
+}
+
 static int test_utf8_split_chunks(void)
 {
 	struct patch_counter counter = {0};
 	struct morph_md_options opts = {0};
 	struct morph_md_stream *stream;
+	struct morph_md_stats stats;
 	const char *input;
 	char *snapshot;
 	int rc;
@@ -300,21 +325,27 @@ static int test_utf8_split_chunks(void)
 	rc = morph_md_stream_append(stream, input, 1u, 0);
 	if (rc != 0)
 		return 61;
+	if (morph_md_stream_get_stats(stream, &stats) != 0 ||
+	    stats.utf8_pending_bytes != 1u)
+		return 62;
 	rc = morph_md_stream_append(stream, input + 1u, 4u, 0);
 	if (rc != 0)
-		return 62;
+		return 63;
 	rc = morph_md_stream_append(stream, input + 5u, strlen(input) - 5u, 1);
 	if (rc != 0)
-		return 63;
+		return 64;
+	if (morph_md_stream_get_stats(stream, &stats) != 0 ||
+	    stats.utf8_pending_bytes != 0u || !stats.finished)
+		return 65;
 
 	snapshot = morph_md_stream_snapshot(stream);
 	if (!snapshot)
-		return 64;
+		return 66;
 	if (!contains(snapshot, "你好😀")) {
 		fprintf(stderr, "%s\n", snapshot);
 		morph_md_free(snapshot);
 		morph_md_stream_destroy(stream);
-		return 65;
+		return 67;
 	}
 	morph_md_free(snapshot);
 	morph_md_stream_destroy(stream);
@@ -342,6 +373,89 @@ static int test_strmap_foundation(void)
 	if (md_strmap_contains(&map, "one"))
 		return 74;
 	md_strmap_cleanup(&map);
+	return 0;
+}
+
+static int test_html_policy(void)
+{
+	struct morph_md_options opts = {0};
+	struct morph_md_stream *stream;
+	char *snapshot;
+	const char *input;
+	int rc;
+
+	input = "before <b>x</b> after\n\n<div>raw</div>\n";
+	opts.enable_gfm = 1;
+	opts.html_policy = MORPH_MD_HTML_STRIP;
+	stream = morph_md_stream_create(&opts, NULL, NULL);
+	if (!stream)
+		return 80;
+	rc = morph_md_stream_append(stream, input, strlen(input), 1);
+	if (rc != 0)
+		return 81;
+	snapshot = morph_md_stream_snapshot(stream);
+	if (!snapshot)
+		return 82;
+	if (contains(snapshot, "html") || contains(snapshot, "<div>")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_stream_destroy(stream);
+		return 83;
+	}
+	morph_md_free(snapshot);
+	morph_md_stream_destroy(stream);
+
+	opts.html_policy = MORPH_MD_HTML_TEXT;
+	stream = morph_md_stream_create(&opts, NULL, NULL);
+	if (!stream)
+		return 84;
+	rc = morph_md_stream_append(stream, input, strlen(input), 1);
+	if (rc != 0)
+		return 85;
+	snapshot = morph_md_stream_snapshot(stream);
+	if (!snapshot)
+		return 86;
+	if (contains(snapshot, "\"html_inline\"") ||
+	    !contains(snapshot, "<b>") ||
+	    !contains(snapshot, "</b>") ||
+	    !contains(snapshot, "<div>raw</div>")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_stream_destroy(stream);
+		return 87;
+	}
+	morph_md_free(snapshot);
+	morph_md_stream_destroy(stream);
+	return 0;
+}
+
+static int test_footnotes_extension(void)
+{
+	struct morph_md_options opts = {0};
+	struct morph_md_stream *stream;
+	const char *input;
+	char *snapshot;
+	int rc;
+
+	opts.enable_gfm = 1;
+	input = "note[^a]\n\n[^a]: body\n";
+	stream = morph_md_stream_create(&opts, NULL, NULL);
+	if (!stream)
+		return 100;
+	rc = morph_md_stream_append(stream, input, strlen(input), 1);
+	if (rc != 0)
+		return 101;
+	snapshot = morph_md_stream_snapshot(stream);
+	if (!snapshot)
+		return 102;
+	if (!contains(snapshot, "\"link\"") || !contains(snapshot, "\"url\":\"body\"")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_stream_destroy(stream);
+		return 103;
+	}
+	morph_md_free(snapshot);
+	morph_md_stream_destroy(stream);
 	return 0;
 }
 
@@ -373,11 +487,23 @@ int main(void)
 	if (rc != 0)
 		return rc;
 
+	rc = test_per_block_insert_patches();
+	if (rc != 0)
+		return rc;
+
 	rc = test_utf8_split_chunks();
 	if (rc != 0)
 		return rc;
 
 	rc = test_strmap_foundation();
+	if (rc != 0)
+		return rc;
+
+	rc = test_html_policy();
+	if (rc != 0)
+		return rc;
+
+	rc = test_footnotes_extension();
 	if (rc != 0)
 		return rc;
 
