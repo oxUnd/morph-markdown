@@ -10,6 +10,7 @@ extern "C" {
 
 struct morph_md_kitty_options {
 	const char *font_path;
+	/* <= 0 means use current terminal cell height. */
 	double font_size;
 	uint32_t fg_color;
 	uint32_t bg_color;

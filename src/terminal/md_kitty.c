@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 struct table_cell_text {
 	char *text;
@@ -26,6 +28,20 @@ struct morph_md_kitty {
 	mjx_ctx *math;
 	int list_depth;
 };
+
+static double terminal_cell_height(void)
+{
+	struct winsize ws;
+
+	memset(&ws, 0, sizeof(ws));
+	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 &&
+	    ws.ws_row > 0 && ws.ws_ypixel > 0)
+		return (double)ws.ws_ypixel / (double)ws.ws_row;
+	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0 &&
+	    ws.ws_row > 0 && ws.ws_ypixel > 0)
+		return (double)ws.ws_ypixel / (double)ws.ws_row;
+	return 18.0;
+}
 
 static void attach_extension(cmark_parser *parser, const char *name)
 {
@@ -506,7 +522,7 @@ struct morph_md_kitty *morph_md_kitty_create(
 	if (options)
 		renderer->options = *options;
 	if (renderer->options.font_size <= 0.0)
-		renderer->options.font_size = 30.0;
+		renderer->options.font_size = terminal_cell_height();
 	if (renderer->options.dpi == 0)
 		renderer->options.dpi = 72u;
 	if (!options) {
