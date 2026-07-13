@@ -14,6 +14,7 @@ struct morph_md_kitty {
 	struct morph_md_kitty_options options;
 	struct md_buf markdown;
 	mjx_ctx *math;
+	int list_depth;
 };
 
 static void attach_extension(cmark_parser *parser, const char *name)
@@ -166,6 +167,39 @@ static int render_text_with_math(struct morph_md_kitty *renderer,
 
 static int render_node(struct morph_md_kitty *renderer, cmark_node *node);
 
+static int append_plain_text(struct md_buf *out, cmark_node *node)
+{
+	cmark_node *child;
+	const char *literal;
+	int rc;
+
+	literal = cmark_node_get_literal(node);
+	if (literal) {
+		rc = md_buf_puts(out, literal);
+		if (rc != MD_OK)
+			return rc;
+	}
+	for (child = cmark_node_first_child(node); child;
+	     child = cmark_node_next(child)) {
+		rc = append_plain_text(out, child);
+		if (rc != MD_OK)
+			return rc;
+	}
+	return MD_OK;
+}
+
+static char *plain_text_dup(cmark_node *node)
+{
+	struct md_buf out;
+
+	md_buf_init(&out);
+	if (append_plain_text(&out, node) != MD_OK) {
+		md_buf_cleanup(&out);
+		return NULL;
+	}
+	return md_buf_detach(&out);
+}
+
 static int render_children(struct morph_md_kitty *renderer, cmark_node *node)
 {
 	cmark_node *child;
@@ -180,15 +214,121 @@ static int render_children(struct morph_md_kitty *renderer, cmark_node *node)
 	return MD_OK;
 }
 
+static int render_list(struct morph_md_kitty *renderer, cmark_node *node)
+{
+	cmark_node *item;
+	int rc;
+
+	renderer->list_depth++;
+	for (item = cmark_node_first_child(node); item; item = cmark_node_next(item)) {
+		rc = render_node(renderer, item);
+		if (rc != MD_OK)
+			return rc;
+	}
+	renderer->list_depth--;
+	fputc('\n', stdout);
+	return MD_OK;
+}
+
+static void print_list_prefix(struct morph_md_kitty *renderer)
+{
+	int i;
+
+	for (i = 1; i < renderer->list_depth; i++)
+		fputs("  ", stdout);
+	fputs("- ", stdout);
+}
+
+static void print_task_prefix(struct morph_md_kitty *renderer, cmark_node *item)
+{
+	int i;
+
+	for (i = 1; i < renderer->list_depth; i++)
+		fputs("  ", stdout);
+	if (cmark_gfm_extensions_get_tasklist_item_checked(item))
+		fputs("- [x] ", stdout);
+	else
+		fputs("- [ ] ", stdout);
+}
+
+static int render_item(struct morph_md_kitty *renderer, cmark_node *node)
+{
+	print_list_prefix(renderer);
+	(void)render_children(renderer, node);
+	return MD_OK;
+}
+
+static int render_task_item(struct morph_md_kitty *renderer, cmark_node *node)
+{
+	print_task_prefix(renderer, node);
+	(void)render_children(renderer, node);
+	return MD_OK;
+}
+
+static int render_table_row(cmark_node *row)
+{
+	cmark_node *cell;
+	char *text;
+
+	fputc('|', stdout);
+	for (cell = cmark_node_first_child(row); cell; cell = cmark_node_next(cell)) {
+		text = plain_text_dup(cell);
+		printf(" %s |", text ? text : "");
+		free(text);
+	}
+	fputc('\n', stdout);
+	return MD_OK;
+}
+
+static int render_table(cmark_node *node)
+{
+	cmark_node *row;
+	int first;
+
+	first = 1;
+	for (row = cmark_node_first_child(node); row; row = cmark_node_next(row)) {
+		(void)render_table_row(row);
+		if (first) {
+			fputs("|", stdout);
+			for (cmark_node *cell = cmark_node_first_child(row); cell;
+			     cell = cmark_node_next(cell))
+				fputs(" --- |", stdout);
+			fputc('\n', stdout);
+			first = 0;
+		}
+	}
+	fputc('\n', stdout);
+	return MD_OK;
+}
+
 static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 {
 	const char *literal;
+	const char *kind;
 	cmark_node_type type;
 
 	type = cmark_node_get_type(node);
+	kind = cmark_node_get_type_string(node);
 	literal = cmark_node_get_literal(node);
 	if (type == CMARK_NODE_TEXT && literal)
 		return render_text_with_math(renderer, literal);
+	if (type == CMARK_NODE_STRONG) {
+		fputs("\033[1m", stdout);
+		(void)render_children(renderer, node);
+		fputs("\033[0m", stdout);
+		return MD_OK;
+	}
+	if (type == CMARK_NODE_EMPH) {
+		fputs("\033[3m", stdout);
+		(void)render_children(renderer, node);
+		fputs("\033[0m", stdout);
+		return MD_OK;
+	}
+	if (type == CMARK_NODE_LINK) {
+		(void)render_children(renderer, node);
+		printf(" (%s)", cmark_node_get_url(node));
+		return MD_OK;
+	}
 	if (type == CMARK_NODE_CODE && literal) {
 		printf("`%s`", literal);
 		return MD_OK;
@@ -205,8 +345,16 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		printf("[image: %s]", cmark_node_get_url(node));
 		return MD_OK;
 	}
+	if (kind && strcmp(kind, "table") == 0)
+		return render_table(node);
+	if (kind && strcmp(kind, "tasklist") == 0)
+		return render_task_item(renderer, node);
+	if (type == CMARK_NODE_LIST)
+		return render_list(renderer, node);
+	if (type == CMARK_NODE_ITEM)
+		return render_item(renderer, node);
 	if (type == CMARK_NODE_PARAGRAPH || type == CMARK_NODE_HEADING ||
-	    type == CMARK_NODE_ITEM || type == CMARK_NODE_BLOCK_QUOTE) {
+	    type == CMARK_NODE_BLOCK_QUOTE) {
 		if (type == CMARK_NODE_HEADING)
 			printf("\033[1m");
 		(void)render_children(renderer, node);
@@ -215,7 +363,7 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		fputs("\n\n", stdout);
 		return MD_OK;
 	}
-	if (type == CMARK_NODE_LIST || type == CMARK_NODE_DOCUMENT)
+	if (type == CMARK_NODE_DOCUMENT)
 		return render_children(renderer, node);
 	return render_children(renderer, node);
 }
