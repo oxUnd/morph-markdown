@@ -22,8 +22,6 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.TableLayout
-import android.widget.TableRow
 import android.widget.TextView
 import java.io.File
 import org.json.JSONArray
@@ -318,23 +316,21 @@ class MainActivity : Activity() {
 			overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
 			setPadding(0, dp(12), 0, dp(14))
 		}
-		val table = TableLayout(this)
+		val table = MarkdownTableView(this)
 		val rows = node.optJSONArray("children") ?: return scroller
 		for (i in 0 until rows.length()) {
 			val rowNode = rows.getJSONObject(i)
-			val row = TableRow(this)
 			val cells = rowNode.optJSONArray("children") ?: JSONArray()
+			table.beginRow(i == 0)
 			for (j in 0 until cells.length()) {
 				val cellNode = cells.getJSONObject(j)
 				val cell = LinearLayout(this).apply {
 					orientation = LinearLayout.HORIZONTAL
 				}
 				cell.setPadding(dp(12), dp(8), dp(12), dp(8))
-				cell.background = border(i == 0)
 				populateInline(cell, inlineChildrenOf(cellNode), true)
-				row.addView(cell)
+				table.addCell(cell)
 			}
-			table.addView(row)
 		}
 		scroller.addView(
 			table,
@@ -511,5 +507,111 @@ class InlineLayout(context: android.content.Context) : ViewGroup(context) {
 			x += child.measuredWidth
 			lineHeight = maxOf(lineHeight, child.measuredHeight)
 		}
+	}
+}
+
+class MarkdownTableView(context: android.content.Context) : ViewGroup(context) {
+	private data class Cell(val row: Int, val col: Int, val header: Boolean, val view: View)
+
+	private val cells = mutableListOf<Cell>()
+	private val colWidths = mutableListOf<Int>()
+	private val rowHeights = mutableListOf<Int>()
+	private val rowHeader = mutableListOf<Boolean>()
+	private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+		color = 0xff454545.toInt()
+		strokeWidth = context.resources.displayMetrics.density * 1.5f
+	}
+	private val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+		color = 0xffefefea.toInt()
+		style = Paint.Style.FILL
+	}
+	private var currentRow = -1
+	private var currentCol = 0
+
+	fun beginRow(header: Boolean) {
+		currentRow += 1
+		currentCol = 0
+		rowHeader.add(header)
+	}
+
+	fun addCell(view: View) {
+		cells.add(Cell(currentRow, currentCol, rowHeader[currentRow], view))
+		addView(view)
+		currentCol += 1
+	}
+
+	override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+		val cols = cells.maxOfOrNull { it.col + 1 } ?: 0
+		val rows = cells.maxOfOrNull { it.row + 1 } ?: 0
+		colWidths.clear()
+		rowHeights.clear()
+		repeat(cols) { colWidths.add(0) }
+		repeat(rows) { rowHeights.add(0) }
+
+		for (cell in cells) {
+			measureChild(
+				cell.view,
+				MeasureSpec.makeMeasureSpec(cellMaxWidth(), MeasureSpec.AT_MOST),
+				heightMeasureSpec
+			)
+			colWidths[cell.col] = maxOf(colWidths[cell.col], cell.view.measuredWidth)
+			rowHeights[cell.row] = maxOf(rowHeights[cell.row], cell.view.measuredHeight)
+		}
+
+		val width = colWidths.sum()
+		val height = rowHeights.sum()
+		setMeasuredDimension(
+			resolveSize(width, widthMeasureSpec),
+			resolveSize(height, heightMeasureSpec)
+		)
+	}
+
+	override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+		val rowTops = IntArray(rowHeights.size)
+		val colLefts = IntArray(colWidths.size)
+		for (i in 1 until rowTops.size)
+			rowTops[i] = rowTops[i - 1] + rowHeights[i - 1]
+		for (i in 1 until colLefts.size)
+			colLefts[i] = colLefts[i - 1] + colWidths[i - 1]
+
+		for (cell in cells) {
+			val left = colLefts[cell.col]
+			val top = rowTops[cell.row]
+			val width = colWidths[cell.col]
+			val height = rowHeights[cell.row]
+			cell.view.layout(left, top, left + width, top + height)
+		}
+	}
+
+	override fun dispatchDraw(canvas: Canvas) {
+		for (row in rowHeights.indices) {
+			if (rowHeader.getOrNull(row) == true) {
+				val top = rowHeights.take(row).sum().toFloat()
+				canvas.drawRect(0f, top, measuredWidth.toFloat(), top + rowHeights[row], headerPaint)
+			}
+		}
+		super.dispatchDraw(canvas)
+		drawGrid(canvas)
+	}
+
+	private fun drawGrid(canvas: Canvas) {
+		var x = 0
+		canvas.drawLine(0f, 0f, measuredWidth.toFloat(), 0f, linePaint)
+		for (width in colWidths) {
+			canvas.drawLine(x.toFloat(), 0f, x.toFloat(), measuredHeight.toFloat(), linePaint)
+			x += width
+		}
+		canvas.drawLine(x.toFloat(), 0f, x.toFloat(), measuredHeight.toFloat(), linePaint)
+
+		var y = 0
+		for (height in rowHeights) {
+			canvas.drawLine(0f, y.toFloat(), measuredWidth.toFloat(), y.toFloat(), linePaint)
+			y += height
+		}
+		canvas.drawLine(0f, y.toFloat(), measuredWidth.toFloat(), y.toFloat(), linePaint)
+	}
+
+	private fun cellMaxWidth(): Int {
+		return (context.resources.displayMetrics.density * 280f + 0.5f).toInt()
 	}
 }
