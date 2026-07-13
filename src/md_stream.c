@@ -1,6 +1,9 @@
 #include "morph_markdown_stream.h"
+#include "base/md_array.h"
 #include "base/md_buf.h"
 #include "base/md_error.h"
+#include "base/md_hash.h"
+#include "base/md_utf8.h"
 
 #include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
@@ -11,12 +14,20 @@
 
 #define DEFAULT_TAIL_BYTES 65536u
 
+struct sealed_block {
+	size_t offset;
+	size_t len;
+	uint64_t hash;
+};
+
 struct morph_md_stream {
 	struct morph_md_options options;
 	morph_md_patch_cb callback;
 	void *user_data;
 	struct md_buf sealed;
 	struct md_buf tail;
+	struct md_buf utf8_pending;
+	struct md_array sealed_blocks;
 	char *pending_json;
 	uint64_t next_id;
 	int finished;
@@ -96,6 +107,16 @@ static int append_node_attrs(struct md_buf *out, cmark_node *node)
 	int rc;
 
 	type = cmark_node_get_type(node);
+	if (cmark_node_get_start_line(node) > 0) {
+		rc = md_buf_printf(out, ",\"sourcepos\":\"%d:%d-%d:%d\"",
+				   cmark_node_get_start_line(node),
+				   cmark_node_get_start_column(node),
+				   cmark_node_get_end_line(node),
+				   cmark_node_get_end_column(node));
+		if (rc != 0)
+			return rc;
+	}
+
 	if (type == CMARK_NODE_HEADING) {
 		rc = md_buf_printf(out, ",\"level\":%d", cmark_node_get_heading_level(node));
 		if (rc != 0)
@@ -143,21 +164,64 @@ static int append_leaf_node(struct md_buf *out, const char *kind,
 	return md_buf_puts(out, ",\"children\":[]}");
 }
 
-static size_t find_math_close(const char *text, size_t len, size_t start)
+static size_t find_delim_close(const char *text, size_t len, size_t start,
+			       const char *close, size_t close_len)
 {
 	size_t i;
 
-	if (start + 1u < len && text[start] == '\\' && text[start + 1u] == '(') {
-		for (i = start + 2u; i + 1u < len; i++) {
-			if (text[i] == '\\' && text[i + 1u] == ')')
-				return i;
-		}
-		return len;
-	}
-
-	for (i = start + 1u; i < len; i++) {
-		if (text[i] == '$' && text[i - 1u] != '\\')
+	for (i = start; i + close_len <= len; i++) {
+		if (text[i] == '\\' && close[0] == '$')
+			continue;
+		if (memcmp(text + i, close, close_len) == 0)
 			return i;
+	}
+	return len;
+}
+
+static int math_open_at(const char *text, size_t len, size_t i,
+			size_t *open_len, const char **close,
+			size_t *close_len, const char **kind)
+{
+	if (i + 1u < len && text[i] == '$' && text[i + 1u] == '$') {
+		*open_len = 2u;
+		*close = "$$";
+		*close_len = 2u;
+		*kind = "math_block";
+		return 1;
+	}
+	if (i + 1u < len && text[i] == '\\' && text[i + 1u] == '[') {
+		*open_len = 2u;
+		*close = "\\]";
+		*close_len = 2u;
+		*kind = "math_block";
+		return 1;
+	}
+	if (i + 1u < len && text[i] == '\\' && text[i + 1u] == '(') {
+		*open_len = 2u;
+		*close = "\\)";
+		*close_len = 2u;
+		*kind = "math_inline";
+		return 1;
+	}
+	if (text[i] == '$') {
+		*open_len = 1u;
+		*close = "$";
+		*close_len = 1u;
+		*kind = "math_inline";
+		return 1;
+	}
+	return 0;
+}
+
+static size_t find_math_start(const char *text, size_t len, size_t start)
+{
+	size_t i;
+
+	for (i = start; i < len; i++) {
+		if (text[i] == '$' ||
+		    (i + 1u < len && text[i] == '\\' &&
+		     (text[i + 1u] == '(' || text[i + 1u] == '[')))
+				return i;
 	}
 	return len;
 }
@@ -168,6 +232,10 @@ static int append_math_text_nodes(struct md_buf *out, const char *text,
 	size_t i;
 	size_t plain_start;
 	size_t close;
+	size_t open_len;
+	size_t close_len;
+	const char *close_delim;
+	const char *kind;
 	int first;
 	int rc;
 
@@ -175,9 +243,7 @@ static int append_math_text_nodes(struct md_buf *out, const char *text,
 	first = 1;
 	while (i < len) {
 		plain_start = i;
-		while (i < len && text[i] != '$' &&
-		       !(i + 1u < len && text[i] == '\\' && text[i + 1u] == '('))
-			i++;
+		i = find_math_start(text, len, i);
 		if (i > plain_start) {
 			if (!first && md_buf_append(out, ",", 1u) != 0)
 				return MD_ERR_NOMEM;
@@ -189,7 +255,13 @@ static int append_math_text_nodes(struct md_buf *out, const char *text,
 		}
 		if (i >= len)
 			break;
-		close = find_math_close(text, len, i);
+		if (!math_open_at(text, len, i, &open_len, &close_delim,
+				  &close_len, &kind)) {
+			i++;
+			continue;
+		}
+		close = find_delim_close(text, len, i + open_len, close_delim,
+					 close_len);
 		if (close >= len) {
 			if (!first && md_buf_append(out, ",", 1u) != 0)
 				return MD_ERR_NOMEM;
@@ -199,15 +271,11 @@ static int append_math_text_nodes(struct md_buf *out, const char *text,
 		if (!first && md_buf_append(out, ",", 1u) != 0)
 			return MD_ERR_NOMEM;
 		first = 0;
-		if (text[i] == '$')
-			rc = append_leaf_node(out, "math_inline", text + i + 1u,
-					      close - i - 1u, next_id);
-		else
-			rc = append_leaf_node(out, "math_inline", text + i + 2u,
-					      close - i - 2u, next_id);
+		rc = append_leaf_node(out, kind, text + i + open_len,
+				      close - i - open_len, next_id);
 		if (rc != 0)
 			return rc;
-		i = text[i] == '$' ? close + 1u : close + 2u;
+		i = close + close_len;
 	}
 	return 0;
 }
@@ -286,6 +354,7 @@ static cmark_node *parse_markdown(const char *md, size_t len, int enable_gfm)
 	int options;
 
 	options = CMARK_OPT_DEFAULT | CMARK_OPT_UNSAFE;
+	options |= CMARK_OPT_SOURCEPOS;
 	cmark_gfm_core_extensions_ensure_registered();
 	parser = cmark_parser_new(options);
 	if (!parser)
@@ -306,11 +375,10 @@ static cmark_node *parse_markdown(const char *md, size_t len, int enable_gfm)
 }
 
 static char *render_ir_json(const char *md, size_t len, int enable_gfm,
-			    int enable_math, uint64_t first_id)
+			    int enable_math, uint64_t *next_id)
 {
 	struct md_buf out;
 	cmark_node *doc;
-	uint64_t next_id;
 	int rc;
 
 	doc = parse_markdown(md, len, enable_gfm);
@@ -318,8 +386,7 @@ static char *render_ir_json(const char *md, size_t len, int enable_gfm,
 		return NULL;
 
 	md_buf_init(&out);
-	next_id = first_id;
-	rc = append_json_node(&out, doc, &next_id, enable_math);
+	rc = append_json_node(&out, doc, next_id, enable_math);
 	cmark_node_free(doc);
 	if (rc != 0) {
 		md_buf_cleanup(&out);
@@ -335,6 +402,24 @@ static void emit_patch(struct morph_md_stream *stream,
 {
 	if (stream->callback)
 		stream->callback(op, json ? json : "{}", stream->user_data);
+}
+
+static int emit_seal_patch(struct morph_md_stream *stream,
+			   const struct sealed_block *block)
+{
+	struct md_buf json;
+	int rc;
+
+	md_buf_init(&json);
+	rc = md_buf_printf(&json,
+			   "{\"offset\":%llu,\"len\":%llu,\"hash\":%llu}",
+			   (unsigned long long)block->offset,
+			   (unsigned long long)block->len,
+			   (unsigned long long)block->hash);
+	if (rc == 0)
+		emit_patch(stream, MORPH_MD_PATCH_SEAL, json.data);
+	md_buf_cleanup(&json);
+	return rc;
 }
 
 static int is_blank_line(const char *line, size_t len)
@@ -440,23 +525,39 @@ static int shift_tail(struct morph_md_stream *stream, size_t prefix_len)
 
 static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
 {
+	struct sealed_block *block;
 	char *json;
+	uint64_t next_id;
 	int rc;
 
 	if (prefix_len == 0)
 		return 0;
 
+	next_id = stream->next_id;
 	json = render_ir_json(stream->tail.data, prefix_len,
 			      stream->options.enable_gfm,
-			      stream->options.enable_math, stream->next_id);
+			      stream->options.enable_math, &next_id);
 	if (!json)
 		return MD_ERR_NOMEM;
+
+	block = md_array_push(&stream->sealed_blocks);
+	if (!block) {
+		free(json);
+		return MD_ERR_NOMEM;
+	}
+	block->offset = stream->sealed.len;
+	block->len = prefix_len;
+	block->hash = md_hash_fnv1a(stream->tail.data, prefix_len);
 
 	rc = md_buf_append(&stream->sealed, stream->tail.data, prefix_len);
 	if (rc == 0)
 		rc = shift_tail(stream, prefix_len);
 	if (rc == 0)
 		emit_patch(stream, MORPH_MD_PATCH_INSERT, json);
+	if (rc == 0) {
+		stream->next_id = next_id;
+		rc = emit_seal_patch(stream, block);
+	}
 
 	free(json);
 	return rc;
@@ -465,6 +566,7 @@ static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
 static int emit_pending(struct morph_md_stream *stream)
 {
 	char *json;
+	uint64_t next_id;
 
 	if (stream->tail.len == 0) {
 		free(stream->pending_json);
@@ -472,9 +574,10 @@ static int emit_pending(struct morph_md_stream *stream)
 		return 0;
 	}
 
+	next_id = stream->next_id;
 	json = render_ir_json(stream->tail.data, stream->tail.len,
 			      stream->options.enable_gfm,
-			      stream->options.enable_math, 1u);
+			      stream->options.enable_math, &next_id);
 	if (!json)
 		return MD_ERR_NOMEM;
 
@@ -511,6 +614,39 @@ static int process_stream(struct morph_md_stream *stream, int is_final)
 	return 0;
 }
 
+static int append_complete_utf8(struct morph_md_stream *stream,
+				const char *bytes, size_t len,
+				int is_final)
+{
+	struct md_buf input;
+	size_t complete;
+	int rc;
+
+	md_buf_init(&input);
+	rc = md_buf_append(&input, stream->utf8_pending.data,
+			   stream->utf8_pending.len);
+	if (rc == 0)
+		rc = md_buf_append(&input, bytes, len);
+	if (rc != 0) {
+		md_buf_cleanup(&input);
+		return rc;
+	}
+
+	stream->utf8_pending.len = 0;
+	if (stream->utf8_pending.data)
+		stream->utf8_pending.data[0] = '\0';
+
+	complete = is_final ? input.len :
+		   md_utf8_complete_prefix_len(input.data, input.len);
+	rc = md_buf_append(&stream->tail, input.data, complete);
+	if (rc == 0 && complete < input.len)
+		rc = md_buf_append(&stream->utf8_pending, input.data + complete,
+				   input.len - complete);
+
+	md_buf_cleanup(&input);
+	return rc;
+}
+
 struct morph_md_stream *morph_md_stream_create(
 	const struct morph_md_options *options,
 	morph_md_patch_cb callback,
@@ -534,6 +670,8 @@ struct morph_md_stream *morph_md_stream_create(
 	stream->next_id = 1u;
 	md_buf_init(&stream->sealed);
 	md_buf_init(&stream->tail);
+	md_buf_init(&stream->utf8_pending);
+	md_array_init(&stream->sealed_blocks, sizeof(struct sealed_block));
 	return stream;
 }
 
@@ -549,7 +687,7 @@ int morph_md_stream_append(struct morph_md_stream *stream,
 	if (stream->finished)
 		return MD_ERR_INVALID;
 
-	rc = md_buf_append(&stream->tail, bytes, len);
+	rc = append_complete_utf8(stream, bytes, len, is_final);
 	if (rc != 0)
 		return rc;
 
@@ -566,6 +704,7 @@ char *morph_md_stream_snapshot(struct morph_md_stream *stream)
 {
 	struct md_buf all;
 	char *json;
+	uint64_t next_id;
 
 	if (!stream)
 		return NULL;
@@ -578,8 +717,9 @@ char *morph_md_stream_snapshot(struct morph_md_stream *stream)
 		return NULL;
 	}
 
+	next_id = 1u;
 	json = render_ir_json(all.data, all.len, stream->options.enable_gfm,
-			      stream->options.enable_math, 1u);
+			      stream->options.enable_math, &next_id);
 	md_buf_cleanup(&all);
 	return json;
 }
@@ -591,6 +731,8 @@ void morph_md_stream_destroy(struct morph_md_stream *stream)
 
 	md_buf_cleanup(&stream->sealed);
 	md_buf_cleanup(&stream->tail);
+	md_buf_cleanup(&stream->utf8_pending);
+	md_array_cleanup(&stream->sealed_blocks);
 	free(stream->pending_json);
 	free(stream);
 }

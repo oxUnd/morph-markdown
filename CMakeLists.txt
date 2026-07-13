@@ -28,6 +28,8 @@ add_library(morph-markdown-render STATIC
 	src/base/md_array.c
 	src/base/md_buf.c
 	src/base/md_hash.c
+	src/base/md_strmap.c
+	src/base/md_utf8.c
 	src/md_stream.c
 )
 
