@@ -12,6 +12,7 @@ struct morph_md_kitty_options {
 	const char *font_path;
 	/* <= 0 means use current terminal cell height. */
 	double font_size;
+	/* mathjax-c stores colors as 0xRRGGBBAA. */
 	uint32_t fg_color;
 	uint32_t bg_color;
 	unsigned int dpi;

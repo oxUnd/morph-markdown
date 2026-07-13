@@ -534,7 +534,7 @@ struct morph_md_kitty *morph_md_kitty_create(
 	mjx_options.font_path = renderer->options.font_path;
 	mjx_options.font_size = renderer->options.font_size;
 	mjx_options.fg_color = renderer->options.fg_color ?
-			       renderer->options.fg_color : 0xFFFFFFu;
+			       renderer->options.fg_color : 0xFFFFFFFFu;
 	mjx_options.bg_color = renderer->options.bg_color;
 	mjx_options.dpi = renderer->options.dpi;
 	renderer->math = mjx_init(&mjx_options);

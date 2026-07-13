@@ -35,7 +35,7 @@ int main(void)
 
 	memset(&options, 0, sizeof(options));
 	options.font_path = MORPH_MATHJAX_FONT_PATH;
-	options.fg_color = 0xFFFFFFu;
+	options.fg_color = 0xFFFFFFFFu;
 	options.bg_color = 0x000000u;
 	options.dpi = 72u;
 	options.enable_gfm = 1;
