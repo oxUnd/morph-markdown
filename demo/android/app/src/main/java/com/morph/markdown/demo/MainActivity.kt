@@ -9,8 +9,11 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
+import android.view.WindowManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.widget.CheckBox
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TableLayout
@@ -27,30 +30,62 @@ class MainActivity : Activity() {
 	private lateinit var scroll: ScrollView
 	private lateinit var fontFile: File
 	private var chunkIndex = 0
+	private var insetTop = 0
+	private var insetBottom = 0
 
 	private val chunks = listOf(
 		"# Streaming Markdown on Android\n\n",
-		"Model text arrives in chunks. Inline formula: ",
+		"Model text arrives in chunks. This paragraph has **bold**, *emphasis*, ",
+		"`inline code`, [a link](https://example.com), and inline math: ",
 		"\$e^{i\\pi}+1=0\$",
 		" and display math follows.\n\n",
 		"$$\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}$$\n\n",
-		"- [x] parse CommonMark/GFM\n",
-		"- [ ] migrate renderer into production UI\n\n",
+		"## Lists and tasks\n\n",
+		"1. Ordered item one\n",
+		"2. Ordered item two with nested bullets\n",
+		"   - nested bullet A\n",
+		"   - nested bullet B\n\n",
+		"- [x] parse CommonMark/GFM task lists\n",
+		"- [ ] migrate renderer into production UI\n",
+		"- [ ] preserve streaming updates on partial blocks\n\n",
+		"> A block quote can arrive while the model is still generating. ",
+		"It should stay readable and not collapse the layout.\n\n",
+		"```kotlin\n",
+		"val engine = MarkdownNative.snapshot(markdown)\n",
+		"val pixels = MarkdownNative.renderLatex(font, \"x^2\", false, size)\n",
+		"```\n\n",
+		"---\n\n",
+		"## Dynamic table\n\n",
 		"| feature | status |\n",
-		"|---|---|\n",
-		"| markdown-render IR | ok |\n",
+		"|:---|:---:|\n",
+		"| CommonMark blocks | ok |\n",
+		"| GFM tasklist | ok |\n",
 		"| mathjax-c bitmap | ok |\n",
-		"| dynamic table growth | ok |\n\n",
-		"![demo image](file:///tmp/demo.png)\n"
+		"| dynamic table growth | ok |\n",
+		"| inline formula \$a^2+b^2=c^2\$ | rendered in cell |\n",
+		"| image ![avatar](file:///tmp/avatar.png) | placeholder in cell |\n",
+		"| code `cell.value()` and [link](https://example.com) | mixed inline |\n\n",
+		"HTML sample: <span>treated as text by policy</span>\n\n",
+		"![demo image](file:///tmp/demo.png \"local image\")\n"
 	)
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
+		window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 		fontFile = copyFont()
-		scroll = ScrollView(this)
+		scroll = ScrollView(this).apply {
+			clipToPadding = true
+			setBackgroundColor(0xfffafaf7.toInt())
+		}
+		ViewCompat.setOnApplyWindowInsetsListener(scroll) { _, insets ->
+			val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+			insetTop = bars.top
+			insetBottom = bars.bottom
+			applySafePadding()
+			insets
+		}
 		body = LinearLayout(this).apply {
 			orientation = LinearLayout.VERTICAL
-			setPadding(dp(20), dp(20), dp(20), dp(32))
 		}
 		scroll.addView(
 			body,
@@ -60,8 +95,15 @@ class MainActivity : Activity() {
 			)
 		)
 		setContentView(scroll)
+		scroll.requestApplyInsets()
+		applySafePadding()
 		render()
 		pump()
+	}
+
+	private fun applySafePadding() {
+		scroll.setPadding(0, insetTop, 0, insetBottom)
+		body.setPadding(dp(20), dp(20), dp(20), dp(32))
 	}
 
 	private fun pump() {
@@ -96,9 +138,11 @@ class MainActivity : Activity() {
 			"paragraph" -> parent.addView(inlineGroup(node.optJSONArray("children")))
 			"list" -> renderList(node, parent)
 			"table" -> parent.addView(table(node))
+			"block_quote" -> parent.addView(blockQuote(node))
 			"math_block" -> parent.addView(mathView(node.optString("literal"), true))
 			"image" -> parent.addView(imagePlaceholder(node))
 			"code_block" -> parent.addView(codeBlock(node.optString("literal")))
+			"thematic_break" -> parent.addView(rule())
 			"soft_break", "hard_break" -> parent.addView(spacer(4))
 			else -> {
 				val children = node.optJSONArray("children")
@@ -110,14 +154,47 @@ class MainActivity : Activity() {
 
 	private fun renderList(node: JSONObject, parent: LinearLayout) {
 		val children = node.optJSONArray("children") ?: return
+		val ordered = node.optString("list_type") == "ordered"
+		var number = node.optInt("start", 1)
 		for (i in 0 until children.length()) {
 			val item = children.getJSONObject(i)
 			if (item.optString("kind") == "tasklist") {
 				parent.addView(taskItem(item))
 			} else {
-				parent.addView(text("- " + plainText(item).trim(), 16f))
+				parent.addView(listItem(item, if (ordered) "${number++}. " else "- "))
 			}
 		}
+	}
+
+	private fun listItem(item: JSONObject, prefix: String): LinearLayout {
+		val group = LinearLayout(this).apply {
+			orientation = LinearLayout.VERTICAL
+			setPadding(0, 0, 0, dp(2))
+		}
+		group.addView(text(prefix + firstParagraphText(item), 16f))
+		val children = item.optJSONArray("children") ?: return group
+		for (i in 0 until children.length()) {
+			val child = children.getJSONObject(i)
+			if (child.optString("kind") == "list") {
+				val nested = LinearLayout(this).apply {
+					orientation = LinearLayout.VERTICAL
+					setPadding(dp(20), 0, 0, 0)
+				}
+				renderList(child, nested)
+				group.addView(nested)
+			}
+		}
+		return group
+	}
+
+	private fun firstParagraphText(item: JSONObject): String {
+		val children = item.optJSONArray("children") ?: return plainText(item).trim()
+		for (i in 0 until children.length()) {
+			val child = children.getJSONObject(i)
+			if (child.optString("kind") == "paragraph")
+				return plainText(child).trim()
+		}
+		return plainText(item).trim()
 	}
 
 	private fun taskItem(item: JSONObject): LinearLayout {
@@ -132,12 +209,12 @@ class MainActivity : Activity() {
 			minHeight = 0
 			setPadding(0, 0, dp(4), 0)
 		})
-		row.addView(inlineGroup(firstParagraphChildren(item)))
+		row.addView(inlineGroup(inlineChildrenOf(item)))
 		return row
 	}
 
-	private fun firstParagraphChildren(item: JSONObject): JSONArray? {
-		val children = item.optJSONArray("children") ?: return null
+	private fun inlineChildrenOf(node: JSONObject): JSONArray? {
+		val children = node.optJSONArray("children") ?: return null
 		for (i in 0 until children.length()) {
 			val child = children.getJSONObject(i)
 			if (child.optString("kind") == "paragraph")
@@ -157,11 +234,17 @@ class MainActivity : Activity() {
 	private fun inlineGroup(children: JSONArray?): View {
 		val row = InlineLayout(this)
 		row.setPadding(0, dp(4), 0, dp(10))
-		if (children == null) return row
+		populateInline(row, children)
+		return row
+	}
+
+	private fun populateInline(row: ViewGroup, children: JSONArray?) {
+		if (children == null) return
 		for (i in 0 until children.length()) {
 			val child = children.getJSONObject(i)
 			when (child.optString("kind")) {
 				"text" -> row.addView(text(child.optString("literal"), 16f))
+				"code" -> row.addView(inlineCode(child.optString("literal")))
 				"soft_break", "hard_break" -> row.addView(text("\n", 16f))
 				"math_inline" -> row.addView(mathView(child.optString("literal"), false))
 				"math_block" -> row.addView(mathView(child.optString("literal"), true))
@@ -169,7 +252,21 @@ class MainActivity : Activity() {
 				else -> row.addView(text(plainText(child), 16f))
 			}
 		}
-		return row
+	}
+
+	private fun blockQuote(node: JSONObject): View {
+		val box = LinearLayout(this).apply {
+			orientation = LinearLayout.HORIZONTAL
+			setPadding(0, dp(6), 0, dp(12))
+		}
+		box.addView(View(this).apply {
+			background = fill(0xff767676.toInt())
+			layoutParams = LinearLayout.LayoutParams(dp(4), ViewGroup.LayoutParams.MATCH_PARENT)
+		})
+		box.addView(text(plainText(node).trim(), 16f).apply {
+			setPadding(dp(12), 0, 0, 0)
+		})
+		return box
 	}
 
 	private fun table(node: JSONObject): TableLayout {
@@ -181,9 +278,13 @@ class MainActivity : Activity() {
 			val row = TableRow(this)
 			val cells = rowNode.optJSONArray("children") ?: JSONArray()
 			for (j in 0 until cells.length()) {
-				val cell = text(plainText(cells.getJSONObject(j)).trim(), 15f)
+				val cellNode = cells.getJSONObject(j)
+				val cell = LinearLayout(this).apply {
+					orientation = LinearLayout.HORIZONTAL
+				}
 				cell.setPadding(dp(12), dp(8), dp(12), dp(8))
 				cell.background = border(i == 0)
+				populateInline(cell, inlineChildrenOf(cellNode))
 				row.addView(cell)
 			}
 			table.addView(row)
@@ -211,6 +312,14 @@ class MainActivity : Activity() {
 		return text(label, 14f).apply {
 			setPadding(dp(12), dp(10), dp(12), dp(10))
 			background = border(false)
+		}
+	}
+
+	private fun inlineCode(code: String): TextView {
+		return text(code, 15f).apply {
+			typeface = Typeface.MONOSPACE
+			setPadding(dp(5), dp(2), dp(5), dp(2))
+			background = fill(0xffeeeeea.toInt())
 		}
 	}
 
@@ -245,6 +354,18 @@ class MainActivity : Activity() {
 	private fun spacer(height: Int): View {
 		return View(this).apply {
 			layoutParams = LinearLayout.LayoutParams(1, dp(height))
+		}
+	}
+
+	private fun rule(): View {
+		return View(this).apply {
+			background = fill(0xffb7b7b0.toInt())
+			layoutParams = LinearLayout.LayoutParams(
+				ViewGroup.LayoutParams.MATCH_PARENT,
+				dp(1)
+			).apply {
+				setMargins(0, dp(14), 0, dp(14))
+			}
 		}
 	}
 

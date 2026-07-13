@@ -140,6 +140,15 @@ static int append_node_attrs(struct md_buf *out, cmark_node *node)
 			return rc;
 	}
 
+	if (type == CMARK_NODE_LIST) {
+		rc = md_buf_printf(out, ",\"list_type\":\"%s\",\"start\":%d",
+				   cmark_node_get_list_type(node) == CMARK_ORDERED_LIST ?
+					   "ordered" : "bullet",
+				   cmark_node_get_list_start(node));
+		if (rc != 0)
+			return rc;
+	}
+
 	if (kind && strcmp(kind, "tasklist") == 0) {
 		rc = md_buf_printf(out, ",\"checked\":%s",
 				   cmark_gfm_extensions_get_tasklist_item_checked(node) ?

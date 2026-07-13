@@ -223,6 +223,41 @@ static int test_sourcepos_image_and_tasklist(void)
 	return counter.seals > 0 ? 0 : 34;
 }
 
+static int test_list_metadata(void)
+{
+	struct morph_md_options opts = {0};
+	struct morph_md_stream *stream;
+	const char *input;
+	char *snapshot;
+	int rc;
+
+	opts.enable_gfm = 1;
+	opts.enable_math = 1;
+	stream = morph_md_stream_create(&opts, NULL, NULL);
+	if (!stream)
+		return 35;
+
+	input = "3. one\n4. two\n";
+	rc = morph_md_stream_append(stream, input, strlen(input), 1);
+	if (rc != 0)
+		return 36;
+
+	snapshot = morph_md_stream_snapshot(stream);
+	if (!snapshot)
+		return 37;
+	if (!contains(snapshot, "\"list_type\":\"ordered\"") ||
+	    !contains(snapshot, "\"start\":3")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_stream_destroy(stream);
+		return 38;
+	}
+
+	morph_md_free(snapshot);
+	morph_md_stream_destroy(stream);
+	return 0;
+}
+
 static int test_display_math(void)
 {
 	struct patch_counter counter = {0};
@@ -517,6 +552,10 @@ int main(void)
 		return rc;
 
 	rc = test_sourcepos_image_and_tasklist();
+	if (rc != 0)
+		return rc;
+
+	rc = test_list_metadata();
 	if (rc != 0)
 		return rc;
 
