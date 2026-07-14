@@ -18,6 +18,18 @@ enum class MorphFontProfile {
 	HetiLikeSong
 }
 
+data class MorphTableStyle(
+	val borderColor: Int = 0xff454545.toInt(),
+	val borderWidthDp: Float = 1f,
+	val headerBackgroundColor: Int = 0xffefefea.toInt(),
+	val bodyBackgroundColor: Int = 0x00ffffff,
+	val headerTextColor: Int = 0xff1b1b1b.toInt(),
+	val bodyTextColor: Int = 0xff1b1b1b.toInt(),
+	val headerTextSizeSp: Float? = null,
+	val bodyTextSizeSp: Float? = null,
+	val headerBold: Boolean = false
+)
+
 data class MorphMarkdownTheme(
 	val bodyTextSizeSp: Float = 16f,
 	val headingSizesSp: List<Float> = listOf(26f, 23f, 20f, 18f, 16f, 16f),
@@ -58,6 +70,7 @@ data class MorphMarkdownTheme(
 	val tableCellPaddingVerticalDp: Int = 8,
 	val tableTopSpacingDp: Int = 12,
 	val tableBottomSpacingDp: Int = 14,
+	val tableStyle: MorphTableStyle = MorphTableStyle(),
 	val imageMaxWidthDp: Int = 320,
 	val imageMaxHeightDp: Int = 180,
 	val mathTextSizeFollowsBody: Boolean = true,
@@ -110,6 +123,11 @@ object MorphMarkdownThemes {
 		tableCellPaddingVerticalDp = 6,
 		tableTopSpacingDp = 12,
 		tableBottomSpacingDp = 20,
+		tableStyle = MorphTableStyle(
+			borderColor = 0xff4a4a45.toInt(),
+			headerBackgroundColor = 0xfff2f2ed.toInt(),
+			headerBold = false
+		),
 		textProcessor = MorphTextProcessor.CjkSpacing,
 		fontProfile = MorphFontProfile.HetiLikeHei
 	)

@@ -17,11 +17,15 @@ class MarkdownTableView(
 	private val rowHeights = mutableListOf<Int>()
 	private val rowHeader = mutableListOf<Boolean>()
 	private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-		color = 0xff454545.toInt()
-		strokeWidth = context.resources.displayMetrics.density * 1.5f
+		color = theme.tableStyle.borderColor
+		strokeWidth = context.dpFloat(theme.tableStyle.borderWidthDp)
 	}
 	private val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-		color = 0xffefefea.toInt()
+		color = theme.tableStyle.headerBackgroundColor
+		style = Paint.Style.FILL
+	}
+	private val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+		color = theme.tableStyle.bodyBackgroundColor
 		style = Paint.Style.FILL
 	}
 	private var currentRow = -1
@@ -59,7 +63,7 @@ class MarkdownTableView(
 	}
 
 	override fun dispatchDraw(canvas: Canvas) {
-		drawHeaders(canvas)
+		drawBackgrounds(canvas)
 		super.dispatchDraw(canvas)
 		drawGrid(canvas)
 	}
@@ -99,37 +103,38 @@ class MarkdownTableView(
 		return out
 	}
 
-	private fun drawHeaders(canvas: Canvas) {
+	private fun drawBackgrounds(canvas: Canvas) {
 		for (row in rowHeights.indices) {
-			if (rowHeader.getOrNull(row) == true) {
-				val top = rowHeights.take(row).sum().toFloat()
-				canvas.drawRect(0f, top, measuredWidth.toFloat(), top + rowHeights[row], headerPaint)
-			}
+			val top = rowHeights.take(row).sum().toFloat()
+			val paint = if (rowHeader.getOrNull(row) == true) headerPaint else bodyPaint
+			canvas.drawRect(0f, top, measuredWidth.toFloat(), top + rowHeights[row], paint)
 		}
 	}
 
 	private fun drawGrid(canvas: Canvas) {
-		drawVerticalLines(canvas)
-		drawHorizontalLines(canvas)
+		val offset = linePaint.strokeWidth / 2f
+		drawVerticalLines(canvas, offset)
+		drawHorizontalLines(canvas, offset)
 	}
 
-	private fun drawVerticalLines(canvas: Canvas) {
+	private fun drawVerticalLines(canvas: Canvas, offset: Float) {
 		var x = 0
-		canvas.drawLine(0f, 0f, measuredWidth.toFloat(), 0f, linePaint)
+		canvas.drawLine(offset, offset, offset, measuredHeight - offset, linePaint)
 		for (width in colWidths) {
-			canvas.drawLine(x.toFloat(), 0f, x.toFloat(), measuredHeight.toFloat(), linePaint)
 			x += width
+			val alignedX = (x.toFloat() - offset).coerceAtLeast(offset)
+			canvas.drawLine(alignedX, offset, alignedX, measuredHeight - offset, linePaint)
 		}
-		canvas.drawLine(x.toFloat(), 0f, x.toFloat(), measuredHeight.toFloat(), linePaint)
 	}
 
-	private fun drawHorizontalLines(canvas: Canvas) {
+	private fun drawHorizontalLines(canvas: Canvas, offset: Float) {
 		var y = 0
+		canvas.drawLine(offset, offset, measuredWidth - offset, offset, linePaint)
 		for (height in rowHeights) {
-			canvas.drawLine(0f, y.toFloat(), measuredWidth.toFloat(), y.toFloat(), linePaint)
 			y += height
+			val alignedY = (y.toFloat() - offset).coerceAtLeast(offset)
+			canvas.drawLine(offset, alignedY, measuredWidth - offset, alignedY, linePaint)
 		}
-		canvas.drawLine(0f, y.toFloat(), measuredWidth.toFloat(), y.toFloat(), linePaint)
 	}
 
 	private fun cellMaxWidth(): Int {

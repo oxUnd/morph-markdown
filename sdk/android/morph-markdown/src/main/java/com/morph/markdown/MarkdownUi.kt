@@ -12,6 +12,10 @@ internal fun Context.dp(value: Int): Int {
 	return (value * resources.displayMetrics.density + 0.5f).toInt()
 }
 
+internal fun Context.dpFloat(value: Float): Float {
+	return value * resources.displayMetrics.density
+}
+
 internal fun fill(color: Int): GradientDrawable {
 	return GradientDrawable().apply {
 		setColor(color)

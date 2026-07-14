@@ -7,6 +7,40 @@ public enum MorphListMarkerStyle: Sendable {
 	case hyphen
 }
 
+public struct MorphTableStyle: Sendable {
+	public var borderColor: Color
+	public var borderWidth: CGFloat
+	public var headerBackgroundColor: Color
+	public var bodyBackgroundColor: Color
+	public var headerTextColor: Color
+	public var bodyTextColor: Color
+	public var headerFont: Font?
+	public var bodyFont: Font?
+	public var headerBold: Bool
+
+	public init(
+		borderColor: Color = .secondary,
+		borderWidth: CGFloat = 1,
+		headerBackgroundColor: Color = Color.secondary.opacity(0.12),
+		bodyBackgroundColor: Color = .clear,
+		headerTextColor: Color = .primary,
+		bodyTextColor: Color = .primary,
+		headerFont: Font? = nil,
+		bodyFont: Font? = nil,
+		headerBold: Bool = false
+	) {
+		self.borderColor = borderColor
+		self.borderWidth = borderWidth
+		self.headerBackgroundColor = headerBackgroundColor
+		self.bodyBackgroundColor = bodyBackgroundColor
+		self.headerTextColor = headerTextColor
+		self.bodyTextColor = bodyTextColor
+		self.headerFont = headerFont
+		self.bodyFont = bodyFont
+		self.headerBold = headerBold
+	}
+}
+
 public struct MorphMarkdownTheme: Sendable {
 	public var bodyFont: Font
 	public var headingFonts: [Font]
@@ -27,6 +61,7 @@ public struct MorphMarkdownTheme: Sendable {
 	public var tableCellWrap: Bool
 	public var tableCellPaddingHorizontal: CGFloat
 	public var tableCellPaddingVertical: CGFloat
+	public var tableStyle: MorphTableStyle
 	public var imageMaxSize: CGSize
 
 	public init(
@@ -49,6 +84,7 @@ public struct MorphMarkdownTheme: Sendable {
 		tableCellWrap: Bool = true,
 		tableCellPaddingHorizontal: CGFloat = 8,
 		tableCellPaddingVertical: CGFloat = 8,
+		tableStyle: MorphTableStyle = MorphTableStyle(),
 		imageMaxSize: CGSize = CGSize(width: 320, height: 180)
 	) {
 		self.bodyFont = bodyFont
@@ -70,6 +106,7 @@ public struct MorphMarkdownTheme: Sendable {
 		self.tableCellWrap = tableCellWrap
 		self.tableCellPaddingHorizontal = tableCellPaddingHorizontal
 		self.tableCellPaddingVertical = tableCellPaddingVertical
+		self.tableStyle = tableStyle
 		self.imageMaxSize = imageMaxSize
 	}
 
@@ -97,7 +134,11 @@ public struct MorphMarkdownTheme: Sendable {
 		listIndent: 32,
 		nestedListIndent: 10,
 		tableCellPaddingHorizontal: 8,
-		tableCellPaddingVertical: 6
+		tableCellPaddingVertical: 6,
+		tableStyle: MorphTableStyle(
+			borderColor: Color(red: 0.29, green: 0.29, blue: 0.27),
+			headerBackgroundColor: Color(red: 0.95, green: 0.95, blue: 0.93)
+		)
 	)
 
 	public static let hetiLikeHei = MorphMarkdownTheme(
@@ -119,6 +160,10 @@ public struct MorphMarkdownTheme: Sendable {
 		listIndent: 32,
 		nestedListIndent: 10,
 		tableCellPaddingHorizontal: 8,
-		tableCellPaddingVertical: 6
+		tableCellPaddingVertical: 6,
+		tableStyle: MorphTableStyle(
+			borderColor: Color(red: 0.29, green: 0.29, blue: 0.27),
+			headerBackgroundColor: Color(red: 0.95, green: 0.95, blue: 0.93)
+		)
 	)
 }

@@ -11,6 +11,12 @@ import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 
+private enum class TableCellRole {
+	None,
+	Header,
+	Body
+}
+
 class MorphMarkdownRenderer(
 	private val context: Context,
 	var theme: MorphMarkdownTheme = MorphMarkdownThemes.Normal,
@@ -51,7 +57,7 @@ class MorphMarkdownRenderer(
 		if (children != null) {
 			renderChildren(children, parent)
 		} else {
-			parent.addView(cellText(node.optString("literal"), false))
+			parent.addView(cellText(node.optString("literal"), TableCellRole.None))
 		}
 	}
 
@@ -156,26 +162,26 @@ class MorphMarkdownRenderer(
 		} else {
 			row.setPadding(0, context.dp(theme.paragraphTopSpacingDp), 0, context.dp(theme.paragraphBottomSpacingDp))
 		}
-		populateInline(row, children, false)
+		populateInline(row, children, TableCellRole.None)
 		return row
 	}
 
-	private fun populateInline(row: ViewGroup, children: JSONArray?, tableCell: Boolean) {
+	private fun populateInline(row: ViewGroup, children: JSONArray?, role: TableCellRole) {
 		if (children == null) return
 		for (i in 0 until children.length()) {
-			addInline(row, children.getJSONObject(i), tableCell)
+			addInline(row, children.getJSONObject(i), role)
 		}
 	}
 
-	private fun addInline(row: ViewGroup, child: JSONObject, tableCell: Boolean) {
+	private fun addInline(row: ViewGroup, child: JSONObject, role: TableCellRole) {
 		when (child.optString("kind")) {
-			"text" -> row.addView(cellText(child.optString("literal"), tableCell))
-			"code" -> row.addView(inlineCode(child.optString("literal"), tableCell))
-			"soft_break", "hard_break" -> row.addView(cellText("\n", tableCell))
+			"text" -> row.addView(cellText(child.optString("literal"), role))
+			"code" -> row.addView(inlineCode(child.optString("literal"), role))
+			"soft_break", "hard_break" -> row.addView(cellText("\n", role))
 			"math_inline" -> row.addView(mathView(child.optString("literal"), false))
 			"math_block" -> row.addView(mathView(child.optString("literal"), true))
 			"image" -> row.addView(imageView(child))
-			else -> row.addView(cellText(plainText(child), tableCell))
+			else -> row.addView(cellText(plainText(child), role))
 		}
 	}
 
@@ -220,11 +226,12 @@ class MorphMarkdownRenderer(
 		for (i in 0 until rows.length()) {
 			val rowNode = rows.getJSONObject(i)
 			table.beginRow(i == 0)
-			addTableCells(table, rowNode.optJSONArray("children") ?: JSONArray())
+			addTableCells(table, rowNode.optJSONArray("children") ?: JSONArray(), i == 0)
 		}
 	}
 
-	private fun addTableCells(table: MarkdownTableView, cells: JSONArray) {
+	private fun addTableCells(table: MarkdownTableView, cells: JSONArray, header: Boolean) {
+		val role = if (header) TableCellRole.Header else TableCellRole.Body
 		for (j in 0 until cells.length()) {
 			val cellNode = cells.getJSONObject(j)
 			val cell = LinearLayout(context).apply {
@@ -236,7 +243,7 @@ class MorphMarkdownRenderer(
 					context.dp(theme.tableCellPaddingVerticalDp)
 				)
 			}
-			populateInline(cell, inlineChildrenOf(cellNode), true)
+			populateInline(cell, inlineChildrenOf(cellNode), role)
 			table.addCell(cell)
 		}
 	}
@@ -261,10 +268,11 @@ class MorphMarkdownRenderer(
 		}
 	}
 
-	private fun inlineCode(code: String, tableCell: Boolean = false): TextView {
+	private fun inlineCode(code: String, role: TableCellRole = TableCellRole.None): TextView {
 		return text(expandTabs(code, theme.tabSize), theme.inlineCodeTextSizeSp).apply {
 			typeface = android.graphics.Typeface.MONOSPACE
-			if (tableCell && theme.tableCellWrap) {
+			applyTableTextStyle(role)
+			if (role != TableCellRole.None && theme.tableCellWrap) {
 				maxWidth = context.dp((theme.tableCellMaxWidthDp * 0.78f).toInt())
 			}
 			setPadding(
@@ -277,14 +285,39 @@ class MorphMarkdownRenderer(
 		}
 	}
 
-	private fun cellText(value: String, tableCell: Boolean): TextView {
-		return text(expandTabs(value, theme.tabSize), theme.bodyTextSizeSp, allowCjkSpacing = true).apply {
-			if (tableCell && theme.tableCellWrap) {
+	private fun cellText(value: String, role: TableCellRole): TextView {
+		return text(expandTabs(value, theme.tabSize), tableTextSize(role), allowCjkSpacing = true).apply {
+			applyTableTextStyle(role)
+			if (role != TableCellRole.None && theme.tableCellWrap) {
 				maxWidth = context.dp((theme.tableCellMaxWidthDp * 0.86f).toInt())
 				setSingleLine(false)
-			} else if (tableCell) {
+			} else if (role != TableCellRole.None) {
 				setSingleLine(true)
 			}
+		}
+	}
+
+	private fun TextView.applyTableTextStyle(role: TableCellRole) {
+		if (role == TableCellRole.None) return
+		setTextColor(tableTextColor(role))
+		if (role == TableCellRole.Header && theme.tableStyle.headerBold) {
+			typeface = typefaceFor(context, theme, bold = true)
+		}
+	}
+
+	private fun tableTextColor(role: TableCellRole): Int {
+		return if (role == TableCellRole.Header) {
+			theme.tableStyle.headerTextColor
+		} else {
+			theme.tableStyle.bodyTextColor
+		}
+	}
+
+	private fun tableTextSize(role: TableCellRole): Float {
+		return if (role == TableCellRole.Header) {
+			theme.tableStyle.headerTextSizeSp ?: theme.bodyTextSizeSp
+		} else {
+			theme.tableStyle.bodyTextSizeSp ?: theme.bodyTextSizeSp
 		}
 	}
 

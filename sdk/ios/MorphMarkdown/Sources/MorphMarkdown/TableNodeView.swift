@@ -13,7 +13,7 @@ struct TableNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 					tableRow(row, header: index == 0)
 				}
 			}
-			.border(Color.secondary)
+			.border(theme.tableStyle.borderColor, width: theme.tableStyle.borderWidth)
 		}
 	}
 
@@ -28,14 +28,26 @@ struct TableNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 	private func cellView(_ cell: MorphMarkdownNode, header: Bool) -> some View {
 		InlineNodeView(
 			nodes: cell.children,
-			theme: theme,
+			theme: tableTheme(header: header),
 			mathRenderer: mathRenderer,
 			imageLoader: imageLoader
 		)
 		.frame(maxWidth: theme.tableCellMaxWidth, alignment: .leading)
 		.padding(.horizontal, theme.tableCellPaddingHorizontal)
 		.padding(.vertical, theme.tableCellPaddingVertical)
-		.background(header ? Color.secondary.opacity(0.12) : Color.clear)
-		.border(Color.secondary)
+		.foregroundColor(header ? theme.tableStyle.headerTextColor : theme.tableStyle.bodyTextColor)
+		.background(header ? theme.tableStyle.headerBackgroundColor : theme.tableStyle.bodyBackgroundColor)
+		.border(theme.tableStyle.borderColor, width: theme.tableStyle.borderWidth)
+	}
+
+	private func tableTheme(header: Bool) -> MorphMarkdownTheme {
+		var next = theme
+		if header, let font = theme.tableStyle.headerFont {
+			next.bodyFont = font
+		}
+		if !header, let font = theme.tableStyle.bodyFont {
+			next.bodyFont = font
+		}
+		return next
 	}
 }
