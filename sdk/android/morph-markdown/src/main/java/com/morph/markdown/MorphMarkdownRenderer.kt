@@ -184,13 +184,21 @@ class MorphMarkdownRenderer(
 
 	private fun addInline(row: ViewGroup, child: JSONObject, role: TableCellRole) {
 		when (child.optString("kind")) {
-			"text" -> row.addView(cellText(child.optString("literal"), role))
+			"text" -> addInlineText(row, child.optString("literal"), role)
 			"code" -> row.addView(inlineCode(child.optString("literal"), role))
-			"soft_break", "hard_break" -> row.addView(cellText("\n", role))
+			"soft_break", "hard_break" -> addInlineText(row, "\n", role)
 			"math_inline" -> row.addView(mathView(child.optString("literal"), false, role))
 			"math_block" -> row.addView(mathView(child.optString("literal"), true, role))
 			"image" -> row.addView(imageView(child))
-			else -> row.addView(cellText(plainText(child), role))
+			else -> addInlineText(row, plainText(child), role)
+		}
+	}
+
+	private fun addInlineText(row: ViewGroup, value: String, role: TableCellRole) {
+		val expanded = expandTabs(value, theme.tabSize)
+		val spaced = processedText(expanded, theme, allowCjkSpacing = true).toString()
+		for (fragment in InlineTextFragmenter.fragments(spaced)) {
+			row.addView(cellText(fragment, role, expand = false, allowCjkSpacing = false))
 		}
 	}
 
@@ -303,14 +311,20 @@ class MorphMarkdownRenderer(
 		}
 	}
 
-	private fun cellText(value: String, role: TableCellRole): TextView {
-		return text(expandTabs(value, theme.tabSize), tableTextSize(role), allowCjkSpacing = true).apply {
+	private fun cellText(
+		value: String,
+		role: TableCellRole,
+		expand: Boolean = true,
+		allowCjkSpacing: Boolean = true
+	): TextView {
+		val source = if (expand) expandTabs(value, theme.tabSize) else value
+		return text(source, tableTextSize(role), allowCjkSpacing = allowCjkSpacing).apply {
 			applyTableTextStyle(role)
+			setSingleLine(true)
 			if (role != TableCellRole.None && theme.tableCellWrap) {
-				maxWidth = context.dp((theme.tableCellMaxWidthDp * 0.86f).toInt())
-				setSingleLine(false)
+				setHorizontallyScrolling(false)
 			} else if (role != TableCellRole.None) {
-				setSingleLine(true)
+				setHorizontallyScrolling(true)
 			}
 		}
 	}
