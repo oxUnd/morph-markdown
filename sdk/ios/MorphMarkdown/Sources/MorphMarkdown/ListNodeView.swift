@@ -22,34 +22,69 @@ struct ListNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 	}
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 4) {
+		VStack(alignment: .leading, spacing: theme.listItemSpacingDp) {
 			ForEach(Array(node.children.enumerated()), id: \.element.id) { index, child in
-				HStack(alignment: .firstTextBaseline) {
+				HStack(alignment: .top, spacing: 0) {
 					marker(index: index)
-					BlockNodeView(node: child, theme: theme, mathRenderer: mathRenderer, imageLoader: imageLoader)
+					listItem(child)
 				}
 			}
 		}
 		.padding(.leading, indent)
 	}
 
+	@ViewBuilder
+	private func listItem(_ child: MorphMarkdownNode) -> some View {
+		if child.kind == "list_item" {
+			VStack(alignment: .leading, spacing: 4) {
+				ForEach(child.children) { itemChild in
+					if itemChild.kind == "list" {
+						ListNodeView(
+							node: itemChild,
+							theme: theme,
+							mathRenderer: mathRenderer,
+							imageLoader: imageLoader,
+							depth: depth + 1
+						)
+					} else {
+						BlockNodeView(
+							node: itemChild,
+							theme: theme,
+							mathRenderer: mathRenderer,
+							imageLoader: imageLoader
+						)
+					}
+				}
+			}
+		} else {
+			BlockNodeView(node: child, theme: theme, mathRenderer: mathRenderer, imageLoader: imageLoader)
+		}
+	}
+
 	private var indent: CGFloat {
-		return depth == 0 ? theme.listIndent : theme.nestedListIndent
+		return depth == 0 ? theme.listIndentDp : theme.nestedListIndentDp
 	}
 
 	@ViewBuilder
 	private func marker(index: Int) -> some View {
 		if node.listType == "ordered" {
 			Text("\(node.start + index).")
-				.frame(width: theme.listMarkerWidth, alignment: .center)
+				.font(theme.bodyFont())
+				.frame(width: theme.orderedMarkerWidthDp, alignment: .center)
+				.padding(.top, markerTopOffset)
 		} else {
 			ListMarkerShape(style: unorderedMarker(index: index), theme: theme)
+				.padding(.top, markerTopOffset + (theme.bodyTextSizeSp - theme.listMarkerSizeDp) / 2)
 		}
+	}
+
+	private var markerTopOffset: CGFloat {
+		max(0, (theme.bodyTextSizeSp * theme.bodyLineHeightMultiplier - theme.bodyTextSizeSp) / 2)
 	}
 
 	private func unorderedMarker(index: Int) -> MorphListMarkerStyle {
 		if theme.unorderedListMarkers.isEmpty { return .disc }
-		return theme.unorderedListMarkers[index % theme.unorderedListMarkers.count]
+		return theme.unorderedListMarkers[depth % theme.unorderedListMarkers.count]
 	}
 }
 
@@ -60,11 +95,17 @@ struct TaskNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 	let imageLoader: Images
 
 	var body: some View {
-		HStack(alignment: .firstTextBaseline) {
+		HStack(alignment: .top, spacing: 0) {
 			Image(systemName: node.checked ? "checkmark.square.fill" : "square")
-				.frame(width: theme.listMarkerWidth, alignment: .center)
+				.frame(width: theme.taskBoxSizeDp, height: theme.taskBoxSizeDp, alignment: .center)
+				.padding(.trailing, theme.taskBoxTextGapDp)
+				.padding(.top, taskTopOffset)
 			InlineNodeView(nodes: inlineChildren, theme: theme, mathRenderer: mathRenderer, imageLoader: imageLoader)
 		}
+	}
+
+	private var taskTopOffset: CGFloat {
+		max(0, (theme.bodyTextSizeSp * theme.bodyLineHeightMultiplier - theme.taskBoxSizeDp) / 2)
 	}
 
 	private var inlineChildren: [MorphMarkdownNode] {
@@ -80,15 +121,15 @@ struct ListMarkerShape: View {
 		ZStack {
 			switch style {
 			case .disc:
-				Circle().fill(Color.primary).frame(width: theme.listMarkerSize, height: theme.listMarkerSize)
+				Circle().fill(Color.primary).frame(width: theme.listMarkerSizeDp, height: theme.listMarkerSizeDp)
 			case .circle:
-				Circle().stroke(Color.primary, lineWidth: 1.5).frame(width: theme.listMarkerSize, height: theme.listMarkerSize)
+				Circle().stroke(Color.primary, lineWidth: 1.5).frame(width: theme.listMarkerSizeDp, height: theme.listMarkerSizeDp)
 			case .square:
-				Rectangle().fill(Color.primary).frame(width: theme.listMarkerSize, height: theme.listMarkerSize)
+				Rectangle().fill(Color.primary).frame(width: theme.listMarkerSizeDp, height: theme.listMarkerSizeDp)
 			case .hyphen:
-				Rectangle().fill(Color.primary).frame(width: theme.listMarkerSize, height: 1.5)
+				Rectangle().fill(Color.primary).frame(width: theme.listMarkerSizeDp, height: 1.5)
 			}
 		}
-		.frame(width: theme.listMarkerWidth, alignment: .center)
+		.frame(width: theme.listMarkerWidthDp, alignment: .center)
 	}
 }

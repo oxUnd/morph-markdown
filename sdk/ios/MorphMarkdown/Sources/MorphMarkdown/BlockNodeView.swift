@@ -12,11 +12,13 @@ struct BlockNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 			Text(plainText(node))
 				.font(theme.headingFont(level: node.level))
 				.bold()
-				.padding(.top, theme.headingTopSpacing)
-				.padding(.bottom, theme.headingBottomSpacing)
+				.lineSpacing(max(0, theme.headingLineHeight(node.level) - theme.headingSize(node.level)))
+				.padding(.top, theme.headingTopSpacingDp)
+				.padding(.bottom, theme.headingBottomSpacingDp)
 		case "paragraph":
 			InlineNodeView(nodes: node.children, theme: theme, mathRenderer: mathRenderer, imageLoader: imageLoader)
-				.padding(.vertical, theme.paragraphVerticalSpacing * 0.5)
+				.padding(.top, theme.paragraphTopSpacingDp)
+				.padding(.bottom, theme.paragraphBottomSpacingDp)
 		case "list":
 			ListNodeView(node: node, theme: theme, mathRenderer: mathRenderer, imageLoader: imageLoader)
 		case "tasklist":
@@ -34,24 +36,27 @@ struct BlockNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 		case "thematic_break":
 			Divider()
 		default:
-			Text(plainText(node)).font(theme.bodyFont).lineSpacing(theme.bodyLineSpacing)
+			Text(plainText(node)).font(theme.bodyFont()).lineSpacing(bodyLineSpacing(theme))
 		}
 	}
 
 	private func quoteView() -> some View {
 		HStack(alignment: .top) {
 			Rectangle().fill(Color.secondary).frame(width: 4)
-			Text(plainText(node)).font(theme.bodyFont)
-				.lineSpacing(theme.bodyLineSpacing)
+			Text(plainText(node)).font(theme.bodyFont())
+				.lineSpacing(bodyLineSpacing(theme))
 		}
-		.padding(.leading, theme.blockquoteIndent)
+		.padding(.top, theme.blockquoteVerticalPaddingDp)
+		.padding(.bottom, theme.blockquoteBottomSpacingDp)
+		.padding(.leading, theme.blockquoteIndentDp)
 	}
 
 	private func codeBlock() -> some View {
-		Text(expandTabs(node.literal, tabSize: theme.tabSize))
+		Text(expandTabs(node.literal, tabSize: theme.codeBlockTabSize))
 			.font(theme.codeFont)
-			.padding(10)
-			.background(Color.secondary.opacity(0.12))
+			.padding(.horizontal, theme.codeBlockPaddingHorizontalDp)
+			.padding(.vertical, theme.codeBlockPaddingVerticalDp)
+			.background(Color(red: 0.93, green: 0.93, blue: 0.90))
 	}
 }
 
@@ -74,4 +79,8 @@ func expandTabs(_ value: String, tabSize: Int) -> String {
 		}
 	}
 	return out
+}
+
+func bodyLineSpacing(_ theme: MorphMarkdownTheme) -> CGFloat {
+	max(0, theme.bodyTextSizeSp * theme.bodyLineHeightMultiplier - theme.bodyTextSizeSp)
 }

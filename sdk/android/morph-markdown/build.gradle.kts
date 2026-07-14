@@ -3,6 +3,12 @@ plugins {
 	id("org.jetbrains.kotlin.android")
 }
 
+val morphRootDir = projectDir.resolve("../../../../..").normalize()
+val mathJaxFontsDir = morphRootDir.resolve("vendor/mathjax-c/fonts")
+check(mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf").isFile) {
+	"Missing MathJax font asset: ${mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf")}"
+}
+
 android {
 	namespace = "com.morph.markdown"
 	compileSdk = 36
@@ -29,7 +35,7 @@ android {
 
 	sourceSets {
 		getByName("main") {
-			assets.srcDir(projectDir.resolve("../../../vendor/mathjax-c/fonts"))
+			assets.srcDir(mathJaxFontsDir)
 		}
 	}
 
