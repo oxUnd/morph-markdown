@@ -30,6 +30,7 @@ class MarkdownTableView(
 	}
 	private var currentRow = -1
 	private var currentCol = 0
+	var viewportWidthHint: Int = 0
 
 	fun beginRow(header: Boolean) {
 		currentRow += 1
@@ -45,9 +46,8 @@ class MarkdownTableView(
 
 	override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
 		resetMeasures()
-		for (cell in cells) {
-			measureCell(cell, heightMeasureSpec)
-		}
+		val widths = resolveColumnWidths(widthMeasureSpec, heightMeasureSpec)
+		measureCells(widths, heightMeasureSpec)
 		setMeasuredDimension(
 			resolveSize(colWidths.sum(), widthMeasureSpec),
 			resolveSize(rowHeights.sum(), heightMeasureSpec)
@@ -77,13 +77,31 @@ class MarkdownTableView(
 		repeat(rows) { rowHeights.add(0) }
 	}
 
-	private fun measureCell(cell: Cell, heightMeasureSpec: Int) {
-		val widthSpec = if (theme.tableCellWrap) {
-			MeasureSpec.makeMeasureSpec(cellMaxWidth(), MeasureSpec.AT_MOST)
-		} else {
-			MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+	private fun resolveColumnWidths(widthMeasureSpec: Int, heightMeasureSpec: Int): List<Int> {
+		val inputs = cells.map { cell ->
+			TableCellWidth(
+				column = cell.col,
+				minWidth = cell.view.tableMinIntrinsicWidth(heightMeasureSpec),
+				preferredWidth = cell.view.tablePreferredIntrinsicWidth(heightMeasureSpec)
+			)
 		}
-		measureChild(cell.view, widthSpec, heightMeasureSpec)
+		return TableColumnSizer.sizeColumns(
+			cells = inputs,
+			columnCount = colWidths.size,
+			availableWidth = availableTableWidth(widthMeasureSpec),
+			maxColumnWidth = cellMaxWidth(),
+			wrap = theme.tableCellWrap
+		)
+	}
+
+	private fun measureCells(widths: List<Int>, heightMeasureSpec: Int) {
+		for (cell in cells) measureCell(cell, widths[cell.col], heightMeasureSpec)
+	}
+
+	private fun measureCell(cell: Cell, width: Int, heightMeasureSpec: Int) {
+		val mode = if (theme.tableCellWrap) MeasureSpec.EXACTLY else MeasureSpec.UNSPECIFIED
+		val widthSpec = MeasureSpec.makeMeasureSpec(width, mode)
+		cell.view.measure(widthSpec, heightMeasureSpec)
 		colWidths[cell.col] = maxOf(colWidths[cell.col], cell.view.measuredWidth)
 		rowHeights[cell.row] = maxOf(rowHeights[cell.row], cell.view.measuredHeight)
 	}
@@ -139,5 +157,13 @@ class MarkdownTableView(
 
 	private fun cellMaxWidth(): Int {
 		return context.dp(theme.tableCellMaxWidthDp)
+	}
+
+	private fun availableTableWidth(widthMeasureSpec: Int): Int? {
+		if (!theme.tableCellWrap) return null
+		if (viewportWidthHint > 0) return viewportWidthHint
+		val mode = MeasureSpec.getMode(widthMeasureSpec)
+		if (mode == MeasureSpec.UNSPECIFIED) return null
+		return MeasureSpec.getSize(widthMeasureSpec)
 	}
 }

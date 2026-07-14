@@ -6,6 +6,8 @@ import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ScaleXSpan
+import android.util.TypedValue
+import android.widget.TextView
 import java.io.File
 
 internal fun Context.dp(value: Int): Int {
@@ -14,6 +16,30 @@ internal fun Context.dp(value: Int): Int {
 
 internal fun Context.dpFloat(value: Float): Float {
 	return value * resources.displayMetrics.density
+}
+
+internal fun Context.sp(value: Float): Float {
+	return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
+}
+
+internal fun Context.textLineHeightPx(sizeSp: Float, multiplier: Float): Int {
+	return sp(sizeSp * multiplier).toInt().coerceAtLeast(1)
+}
+
+internal fun TextView.applyMorphTextMetrics(sizeSp: Float, lineHeightMultiplier: Float) {
+	includeFontPadding = false
+	val metrics = paint.fontMetricsInt
+	val glyphHeight = (metrics.descent - metrics.ascent).coerceAtLeast(1)
+	val target = context.textLineHeightPx(sizeSp, lineHeightMultiplier)
+	val extra = (target - glyphHeight).coerceAtLeast(0)
+	setLineSpacing(extra.toFloat(), 1f)
+	setTextVerticalPadding(extra)
+}
+
+private fun TextView.setTextVerticalPadding(extra: Int) {
+	val top = extra / 2
+	val bottom = extra - top
+	setPadding(paddingLeft, top, paddingRight, bottom)
 }
 
 internal fun fill(color: Int): GradientDrawable {

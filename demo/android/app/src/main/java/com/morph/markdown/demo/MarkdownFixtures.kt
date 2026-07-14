@@ -77,6 +77,7 @@ object MarkdownFixtures {
 			"|:---|:---|\n",
 			"| 中文长文本 | 这是一段故意写得比较长的中文表格内容，用来验证单元格换行、行高、padding 和横向滚动是否仍然稳定。 |\n",
 			"| 表格内公式 | 勾股定理 \$a^2+b^2=c^2\$ 应该可以在中文单元格中渲染。 |\n",
+			"| 表格内高公式 | 求根公式 \$\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}\$ 只应该撑高当前行，后面的中文仍然保持稳定换行。 |\n",
 			"| 表格内有效图片 | ![generated]($validUri) |\n",
 			"| 表格内无效图片 | ![missing]($invalidUri) |\n",
 			"| 中英混排 | MorphMarkdown SDK 在 Android 和 iOS 上复用同一份 IR。 |\n\n",

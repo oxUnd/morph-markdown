@@ -16,7 +16,10 @@ class ListMarkerView(
 	}
 
 	override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-		setMeasuredDimension(context.dp(theme.listMarkerWidthDp), context.dp(theme.bodyTextSizeSp.toInt() + 8))
+		setMeasuredDimension(
+			context.dp(theme.listMarkerWidthDp),
+			context.textLineHeightPx(theme.bodyTextSizeSp, theme.bodyLineHeightMultiplier)
+		)
 	}
 
 	override fun onDraw(canvas: Canvas) {

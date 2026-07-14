@@ -2,9 +2,10 @@ package com.morph.markdown
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.TypedValue
-import android.widget.ImageView
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.LinearLayout
 import java.io.File
 
 interface MorphMathRenderer {
@@ -20,14 +21,29 @@ class MathJaxMathRenderer(context: Context) : MorphMathRenderer {
 		display: Boolean,
 		theme: MorphMarkdownTheme
 	): View? {
-		val fontSizePx = spToPx(context, theme.mathSize())
+		val fontSizePx = context.sp(theme.mathSize())
 		val data = MarkdownNative.renderLatex(fontFile.absolutePath, latex, display, fontSizePx)
 		if (data == null || data.size < 3) return null
 		val bitmap = bitmapFromData(data)
+		val image = fixedBitmapView(context, bitmap)
+		if (!display) return image
+		return displayMathContainer(context, image)
+	}
+
+	private fun fixedBitmapView(context: Context, bitmap: Bitmap): ImageView {
 		return ImageView(context).apply {
 			setImageBitmap(bitmap)
-			adjustViewBounds = true
-			setPadding(0, context.dp(if (display) 12 else 0), 0, context.dp(if (display) 12 else 0))
+			adjustViewBounds = false
+			scaleType = ImageView.ScaleType.CENTER
+			layoutParams = ViewGroup.LayoutParams(bitmap.width, bitmap.height)
+		}
+	}
+
+	private fun displayMathContainer(context: Context, image: View): View {
+		return LinearLayout(context).apply {
+			orientation = LinearLayout.VERTICAL
+			setPadding(0, context.dp(12), 0, context.dp(12))
+			addView(image)
 		}
 	}
 
@@ -46,13 +62,5 @@ class MathJaxMathRenderer(context: Context) : MorphMathRenderer {
 			}
 		}
 		return out
-	}
-
-	private fun spToPx(context: Context, sizeSp: Float): Float {
-		return TypedValue.applyDimension(
-			TypedValue.COMPLEX_UNIT_SP,
-			sizeSp,
-			context.resources.displayMetrics
-		)
 	}
 }

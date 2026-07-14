@@ -4,7 +4,6 @@ import android.content.Context
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -84,8 +83,10 @@ class MorphMarkdownRenderer(
 	}
 
 	private fun listItemContent(item: JSONObject, depth: Int): LinearLayout {
-		val group = verticalGroup(0, 0, 0, context.dp(theme.listItemSpacingDp))
-		group.addView(text(expandTabs(firstParagraphText(item), theme.tabSize), theme.bodyTextSizeSp))
+		val group = verticalGroup(0, 0, 0, context.dp(theme.listItemSpacingDp)).apply {
+			layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+		}
+		group.addView(inlineGroup(inlineChildrenOf(item), compact = true))
 		addNestedLists(item, group, depth)
 		return group
 	}
@@ -130,7 +131,7 @@ class MorphMarkdownRenderer(
 	private fun taskItem(item: JSONObject): LinearLayout {
 		val row = LinearLayout(context).apply {
 			orientation = LinearLayout.HORIZONTAL
-			gravity = Gravity.CENTER_VERTICAL
+			gravity = Gravity.TOP
 			setPadding(0, 0, 0, context.dp(theme.listItemSpacingDp))
 		}
 		row.addView(TaskMarkerView(context, item.optBoolean("checked", false), theme).apply {
@@ -138,12 +139,20 @@ class MorphMarkdownRenderer(
 				context.dp(theme.taskBoxSizeDp),
 				context.dp(theme.taskBoxSizeDp)
 			).apply {
-				gravity = Gravity.CENTER_VERTICAL
+				gravity = Gravity.TOP
+				topMargin = taskBoxTopMargin()
 				setMargins(0, 0, context.dp(theme.taskBoxTextGapDp), 0)
 			}
 		})
-		row.addView(inlineGroup(inlineChildrenOf(item), compact = true))
+		row.addView(inlineGroup(inlineChildrenOf(item), compact = true).apply {
+			layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+		})
 		return row
+	}
+
+	private fun taskBoxTopMargin(): Int {
+		val lineHeight = context.textLineHeightPx(theme.bodyTextSizeSp, theme.bodyLineHeightMultiplier)
+		return ((lineHeight - context.dp(theme.taskBoxSizeDp)) / 2).coerceAtLeast(0)
 	}
 
 	private fun heading(node: JSONObject): TextView {
@@ -178,8 +187,8 @@ class MorphMarkdownRenderer(
 			"text" -> row.addView(cellText(child.optString("literal"), role))
 			"code" -> row.addView(inlineCode(child.optString("literal"), role))
 			"soft_break", "hard_break" -> row.addView(cellText("\n", role))
-			"math_inline" -> row.addView(mathView(child.optString("literal"), false))
-			"math_block" -> row.addView(mathView(child.optString("literal"), true))
+			"math_inline" -> row.addView(mathView(child.optString("literal"), false, role))
+			"math_block" -> row.addView(mathView(child.optString("literal"), true, role))
 			"image" -> row.addView(imageView(child))
 			else -> row.addView(cellText(plainText(child), role))
 		}
@@ -213,8 +222,9 @@ class MorphMarkdownRenderer(
 			ViewGroup.LayoutParams.WRAP_CONTENT
 		)
 		if (!theme.tableHorizontalScroll) return table
-		return HorizontalScrollView(context).apply {
+		return MarkdownTableScrollView(context).apply {
 			isHorizontalScrollBarEnabled = true
+			isFillViewport = true
 			overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
 			setPadding(0, context.dp(theme.tableTopSpacingDp), 0, context.dp(theme.tableBottomSpacingDp))
 			addView(table)
@@ -234,8 +244,9 @@ class MorphMarkdownRenderer(
 		val role = if (header) TableCellRole.Header else TableCellRole.Body
 		for (j in 0 until cells.length()) {
 			val cellNode = cells.getJSONObject(j)
-			val cell = LinearLayout(context).apply {
-				orientation = LinearLayout.HORIZONTAL
+			val cell = InlineLayout(context).apply {
+				lineSpacingPx = context.dp(theme.tableCellLineSpacingDp)
+				minLineHeightPx = tableLineHeightPx(role)
 				setPadding(
 					context.dp(theme.tableCellPaddingHorizontalDp),
 					context.dp(theme.tableCellPaddingVerticalDp),
@@ -248,8 +259,15 @@ class MorphMarkdownRenderer(
 		}
 	}
 
-	private fun mathView(latex: String, display: Boolean): View {
-		val rendered = mathRenderer?.render(context, latex, display, theme)
+	private fun mathView(
+		latex: String,
+		display: Boolean,
+		role: TableCellRole = TableCellRole.None
+	): View {
+		val renderTheme = if (role == TableCellRole.None) theme else theme.copy(
+			mathTextScale = theme.tableMathTextScale
+		)
+		val rendered = mathRenderer?.render(context, latex, display, renderTheme)
 		return rendered ?: text(latex, theme.bodyTextSizeSp)
 	}
 
@@ -303,6 +321,7 @@ class MorphMarkdownRenderer(
 		if (role == TableCellRole.Header && theme.tableStyle.headerBold) {
 			typeface = typefaceFor(context, theme, bold = true)
 		}
+		applyMorphTextMetrics(tableTextSize(role), theme.tableCellLineHeightMultiplier)
 	}
 
 	private fun tableTextColor(role: TableCellRole): Int {
@@ -319,6 +338,11 @@ class MorphMarkdownRenderer(
 		} else {
 			theme.tableStyle.bodyTextSizeSp ?: theme.bodyTextSizeSp
 		}
+	}
+
+	private fun tableLineHeightPx(role: TableCellRole): Int {
+		if (role == TableCellRole.None) return 0
+		return context.textLineHeightPx(tableTextSize(role), theme.tableCellLineHeightMultiplier)
 	}
 
 	private fun codeBlock(code: String): TextView {
@@ -368,8 +392,7 @@ class MorphMarkdownRenderer(
 			textSize = sizeSp
 			setTextColor(0xff1b1b1b.toInt())
 			typeface = typefaceFor(context, theme)
-			includeFontPadding = theme.fontProfile == MorphFontProfile.System
-			setLineSpacing(0f, theme.bodyLineHeightMultiplier)
+			applyMorphTextMetrics(sizeSp, theme.bodyLineHeightMultiplier)
 		}
 	}
 

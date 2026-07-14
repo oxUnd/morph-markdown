@@ -33,6 +33,7 @@ struct TableNodeView<Math: MorphMathRenderer, Images: MorphImageLoader>: View {
 			imageLoader: imageLoader
 		)
 		.frame(maxWidth: theme.tableCellMaxWidth, alignment: .leading)
+		.lineSpacing(theme.tableCellLineSpacing)
 		.padding(.horizontal, theme.tableCellPaddingHorizontal)
 		.padding(.vertical, theme.tableCellPaddingVertical)
 		.foregroundColor(header ? theme.tableStyle.headerTextColor : theme.tableStyle.bodyTextColor)

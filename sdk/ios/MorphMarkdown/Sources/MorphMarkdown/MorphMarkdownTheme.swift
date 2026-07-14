@@ -61,6 +61,8 @@ public struct MorphMarkdownTheme: Sendable {
 	public var tableCellWrap: Bool
 	public var tableCellPaddingHorizontal: CGFloat
 	public var tableCellPaddingVertical: CGFloat
+	public var tableCellLineSpacing: CGFloat
+	public var tableMathScale: CGFloat
 	public var tableStyle: MorphTableStyle
 	public var imageMaxSize: CGSize
 
@@ -84,6 +86,8 @@ public struct MorphMarkdownTheme: Sendable {
 		tableCellWrap: Bool = true,
 		tableCellPaddingHorizontal: CGFloat = 8,
 		tableCellPaddingVertical: CGFloat = 8,
+		tableCellLineSpacing: CGFloat = 2,
+		tableMathScale: CGFloat = 1,
 		tableStyle: MorphTableStyle = MorphTableStyle(),
 		imageMaxSize: CGSize = CGSize(width: 320, height: 180)
 	) {
@@ -106,6 +110,8 @@ public struct MorphMarkdownTheme: Sendable {
 		self.tableCellWrap = tableCellWrap
 		self.tableCellPaddingHorizontal = tableCellPaddingHorizontal
 		self.tableCellPaddingVertical = tableCellPaddingVertical
+		self.tableCellLineSpacing = tableCellLineSpacing
+		self.tableMathScale = tableMathScale
 		self.tableStyle = tableStyle
 		self.imageMaxSize = imageMaxSize
 	}
@@ -135,6 +141,8 @@ public struct MorphMarkdownTheme: Sendable {
 		nestedListIndent: 10,
 		tableCellPaddingHorizontal: 8,
 		tableCellPaddingVertical: 6,
+		tableCellLineSpacing: 4,
+		tableMathScale: 1,
 		tableStyle: MorphTableStyle(
 			borderColor: Color(red: 0.29, green: 0.29, blue: 0.27),
 			headerBackgroundColor: Color(red: 0.95, green: 0.95, blue: 0.93)
@@ -161,6 +169,8 @@ public struct MorphMarkdownTheme: Sendable {
 		nestedListIndent: 10,
 		tableCellPaddingHorizontal: 8,
 		tableCellPaddingVertical: 6,
+		tableCellLineSpacing: 4,
+		tableMathScale: 1,
 		tableStyle: MorphTableStyle(
 			borderColor: Color(red: 0.29, green: 0.29, blue: 0.27),
 			headerBackgroundColor: Color(red: 0.95, green: 0.95, blue: 0.93)
