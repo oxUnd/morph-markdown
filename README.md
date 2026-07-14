@@ -9,22 +9,31 @@ Small native Markdown streaming core for iOS and Android.
 - `src/base/md_strmap.*` provides internal string-keyed lookup support.
 - `src/base/md_utf8.*` keeps streamed input on complete UTF-8 boundaries.
 - `src/md_stream.c` streaming coordinator and cmark-gfm IR conversion.
+- `sdk/android/morph-markdown/` Android View SDK and JNI bridge.
+- `sdk/ios/MorphMarkdown/` SwiftUI SDK surface and IR renderer.
+- `demo/android/` Android app demonstrating SDK integration.
 - `tests/` C tests for streaming, GFM, math toggles, and snapshots.
 
 ## Design
 
-The core does not render platform UI. It accepts streamed Markdown bytes and
-emits JSON IR patches. iOS and Android render those patches with native views.
+The C core does not render platform UI. It accepts streamed Markdown bytes,
+emits typed events, and can snapshot the current Markdown document. Platform
+SDKs render the serialized IR with native views.
 
 - Parser: `cmark-gfm`, with GFM extensions enabled by default.
 - Streaming: sealed prefix plus mutable tail buffer. Sealed prefixes emit one
-  `INSERT` per top-level block plus a `SEAL` patch with offset, length, and
+  `insert` event per top-level block plus a `seal` event with offset, length, and
   content hash metadata.
 - Images: emitted as Markdown image/link nodes; platform adapters load images.
 - Math: optional IR split into `math_inline` and `math_block` nodes. Rendering
   is a platform plugin responsibility.
 - HTML: controlled by `html_policy`: passthrough, strip, or downgrade to text.
-- Stats: `morph_md_stream_get_stats` exposes sealed/tail/pending byte counts and
+- API: create `morph_md_engine`, append chunks with `morph_md_engine_append`,
+  snapshot with `morph_md_engine_snapshot`, and serialize with
+  `morph_md_doc_to_json`.
+- Events: `morph_md_engine_options.on_event` receives `morph_md_event`;
+  `morph_md_event_to_json` is available for bindings that want JSON patches.
+- Stats: `morph_md_engine_get_stats` exposes sealed/tail/pending byte counts and
   sealed block count for memory monitoring.
 - cmark-gfm `footnotes` is enabled with the GFM extension set; dedicated
   footnote IR nodes are still pending because the exposed AST maps references
@@ -33,14 +42,22 @@ emits JSON IR patches. iOS and Android render those patches with native views.
   `md_array`; string-keyed lookups should use `md_strmap`; hash IDs should use
   `md_hash`.
 
+## SDKs
+
+- Android SDK exposes `MorphMarkdownView`, `MorphMarkdownEngine`,
+  `MorphMarkdownTheme`, `MorphMathRenderer`, and `MorphImageLoader`.
+- Android demo depends on the SDK module; it no longer owns reusable Markdown
+  rendering code.
+- iOS SDK exposes a SwiftUI `MorphMarkdownView`, `MorphMarkdownEngine`,
+  `MorphMarkdownTheme`, and math/image plugin protocols.
+- Both SDKs keep math and image rendering pluggable.
+
 ## Current gaps
 
-- Swift and JNI/Kotlin bindings are not implemented yet.
-- Patch payloads are JSON for portability; a zero-copy struct callback path is
-  still pending for production.
+- iOS native C bridge adapter is still pending; the SwiftUI SDK currently
+  consumes a `MorphMarkdownNativeEngine` protocol.
 - Stable-prefix detection is conservative and blank-line/block-boundary based;
   finer line-level stability rules are pending.
-- Full CommonMark/GFM corpus automation is not wired into CTest yet.
 - Dedicated footnote presentation nodes are not modeled yet.
 
 ## Kitty Demo

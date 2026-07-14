@@ -38,8 +38,7 @@ int main(void)
 	options.fg_color = 0xFFFFFFFFu;
 	options.bg_color = 0x000000u;
 	options.dpi = 72u;
-	options.enable_gfm = 1;
-	options.enable_math = 1;
+	options.features = MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
 
 	renderer = morph_md_kitty_create(&options);
 	if (!renderer) {

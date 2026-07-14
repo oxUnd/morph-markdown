@@ -149,12 +149,12 @@ if(MORPH_MARKDOWN_BUILD_TESTS)
 	enable_testing()
 	find_package(Python3 QUIET COMPONENTS Interpreter)
 
-	add_executable(test_md_stream
-		tests/test_md_stream.c
+	add_executable(test_md_engine
+		tests/test_md_engine.c
 	)
-	target_link_libraries(test_md_stream PRIVATE morph-markdown-render)
+	target_link_libraries(test_md_engine PRIVATE morph-markdown-render)
 
-	add_test(NAME test_md_stream COMMAND test_md_stream)
+	add_test(NAME test_md_engine COMMAND test_md_engine)
 
 	if(Python3_Interpreter_FOUND)
 		add_test(

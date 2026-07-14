@@ -1,27 +1,27 @@
 # Android demo for markdown-render
 
 This is a minimal Android project that demonstrates how to embed
-`markdown-render` from JNI.
+the `markdown-render` Android SDK.
 
 Pipeline:
 
-1. Kotlin streams Markdown chunks into a growing buffer.
-2. JNI calls `morph_md_stream_append()` and returns the current IR JSON.
-3. Kotlin renders the IR with native Android views.
-4. Math nodes call `mathjax-c` through JNI and render ARGB bitmaps.
+1. The app creates `MorphMarkdownView` from `:morph-markdown`.
+2. The SDK owns JNI, `morph_md_engine`, IR snapshot, and native View rendering.
+3. The app streams Markdown chunks with `MorphMarkdownView.append()`.
+4. The app configures theme controls, `MathJaxMathRenderer`, and `FileImageLoader`.
 
 Build:
 
 ```sh
 cd demo/android
-gradle :app:assembleDebug
+gradle :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
 If your shell does not have `gradle`, reuse any Gradle wrapper:
 
 ```sh
 cd demo/android
-../../../android/gradlew :app:assembleDebug
+../../../android/gradlew :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
 The demo expects Android FreeType and HarfBuzz libraries. By default CMake

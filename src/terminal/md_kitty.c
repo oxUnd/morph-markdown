@@ -167,7 +167,7 @@ static int render_text_with_math(struct morph_md_kitty *renderer,
 	len = strlen(text);
 	i = 0;
 	while (i < len) {
-		if (!renderer->options.enable_math ||
+		if (!((renderer->options.features & MORPH_MD_FEATURE_MATH) != 0u) ||
 		    !is_math_start(text, len, i, &open_len, &close,
 				   &close_len, &style)) {
 			fputc(text[i], stdout);
@@ -526,8 +526,8 @@ struct morph_md_kitty *morph_md_kitty_create(
 	if (renderer->options.dpi == 0)
 		renderer->options.dpi = 72u;
 	if (!options) {
-		renderer->options.enable_gfm = 1;
-		renderer->options.enable_math = 1;
+		renderer->options.features =
+			MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
 	}
 
 	memset(&mjx_options, 0, sizeof(mjx_options));
@@ -565,7 +565,7 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 	if (!renderer)
 		return MD_ERR_INVALID;
 	doc = parse_markdown(renderer->markdown.data, renderer->markdown.len,
-			     renderer->options.enable_gfm);
+			     ((renderer->options.features & MORPH_MD_FEATURE_GFM) != 0u));
 	if (!doc)
 		return MD_ERR_PARSE;
 	rc = render_node(renderer, doc);

@@ -17,24 +17,6 @@ android {
 		ndk {
 			abiFilters += listOf("arm64-v8a")
 		}
-
-		externalNativeBuild {
-			cmake {
-				arguments += listOf("-DANDROID_STL=c++_static")
-			}
-		}
-	}
-
-	externalNativeBuild {
-		cmake {
-			path = file("src/main/cpp/CMakeLists.txt")
-		}
-	}
-
-	sourceSets {
-		getByName("main") {
-			assets.srcDir(rootProject.projectDir.resolve("../../../../vendor/mathjax-c/fonts"))
-		}
 	}
 
 	compileOptions {
@@ -48,6 +30,7 @@ android {
 }
 
 dependencies {
+	implementation(project(":morph-markdown"))
 	implementation("androidx.core:core-ktx:1.12.0")
 	implementation("androidx.appcompat:appcompat:1.6.1")
 	implementation("androidx.activity:activity-ktx:1.8.2")

@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "morph_markdown.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,8 +18,7 @@ struct morph_md_kitty_options {
 	uint32_t fg_color;
 	uint32_t bg_color;
 	unsigned int dpi;
-	int enable_gfm;
-	int enable_math;
+	uint32_t features;
 };
 
 struct morph_md_kitty;

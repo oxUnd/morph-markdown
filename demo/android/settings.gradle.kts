@@ -14,5 +14,8 @@ dependencyResolutionManagement {
 	}
 }
 
-rootProject.name = "markdown-render-android-demo"
+rootProject.name = "morph-markdown-demo"
 include(":app")
+include(":morph-markdown")
+project(":morph-markdown").projectDir =
+	file("../../sdk/android/morph-markdown")

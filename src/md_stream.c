@@ -1,4 +1,4 @@
-#include "morph_markdown_stream.h"
+#include "morph_markdown.h"
 #include "base/md_array.h"
 #include "base/md_buf.h"
 #include "base/md_error.h"
@@ -23,12 +23,16 @@ struct sealed_block {
 
 struct render_options {
 	int enable_math;
-	int html_policy;
+	enum morph_md_html_policy html_policy;
 };
 
-struct morph_md_stream {
-	struct morph_md_options options;
-	morph_md_patch_cb callback;
+struct morph_md_doc {
+	char *json;
+};
+
+struct morph_md_engine {
+	struct morph_md_engine_options options;
+	void (*on_event)(const struct morph_md_event *event, void *user_data);
 	void *user_data;
 	struct md_buf sealed;
 	struct md_buf tail;
@@ -39,8 +43,8 @@ struct morph_md_stream {
 	int finished;
 };
 
-static void emit_patch(struct morph_md_stream *stream,
-		       enum morph_md_patch_op op,
+static void emit_patch(struct morph_md_engine *stream,
+		       enum morph_md_event_type op,
 		       const char *json);
 
 static int json_escape(struct md_buf *out, const char *text, size_t len)
@@ -465,10 +469,11 @@ static char *render_ir_json(const char *md, size_t len, int enable_gfm,
 	return md_buf_detach(&out);
 }
 
-static void stream_render_options(const struct morph_md_stream *stream,
+static void stream_render_options(const struct morph_md_engine *stream,
 				  struct render_options *opts)
 {
-	opts->enable_math = stream->options.enable_math;
+	opts->enable_math =
+		(stream->options.features & MORPH_MD_FEATURE_MATH) != 0u;
 	opts->html_policy = stream->options.html_policy;
 }
 
@@ -488,7 +493,7 @@ static char *render_node_json(cmark_node *node,
 	return md_buf_detach(&out);
 }
 
-static int emit_top_level_inserts(struct morph_md_stream *stream,
+static int emit_top_level_inserts(struct morph_md_engine *stream,
 				  const char *md, size_t len,
 				  uint64_t *next_id)
 {
@@ -498,7 +503,9 @@ static int emit_top_level_inserts(struct morph_md_stream *stream,
 	char *json;
 
 	stream_render_options(stream, &opts);
-	doc = parse_markdown(md, len, stream->options.enable_gfm);
+	doc = parse_markdown(
+		md, len,
+		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u);
 	if (!doc)
 		return MD_ERR_PARSE;
 
@@ -511,7 +518,7 @@ static int emit_top_level_inserts(struct morph_md_stream *stream,
 			cmark_node_free(doc);
 			return MD_ERR_NOMEM;
 		}
-		emit_patch(stream, MORPH_MD_PATCH_INSERT, json);
+		emit_patch(stream, MORPH_MD_EVENT_INSERT, json);
 		free(json);
 	}
 
@@ -519,17 +526,25 @@ static int emit_top_level_inserts(struct morph_md_stream *stream,
 	return MD_OK;
 }
 
-static void emit_patch(struct morph_md_stream *stream,
-		       enum morph_md_patch_op op,
+static void emit_patch(struct morph_md_engine *stream,
+		       enum morph_md_event_type op,
 		       const char *json)
 {
-	if (stream->callback)
-		stream->callback(op, json ? json : "{}", stream->user_data);
+	struct morph_md_event event;
+
+	if (!stream->on_event)
+		return;
+
+	memset(&event, 0, sizeof(event));
+	event.type = op;
+	event.json = json ? json : "{}";
+	stream->on_event(&event, stream->user_data);
 }
 
-static int emit_seal_patch(struct morph_md_stream *stream,
+static int emit_seal_patch(struct morph_md_engine *stream,
 			   const struct sealed_block *block)
 {
+	struct morph_md_event event;
 	struct md_buf json;
 	int rc;
 
@@ -539,8 +554,15 @@ static int emit_seal_patch(struct morph_md_stream *stream,
 			   (unsigned long long)block->offset,
 			   (unsigned long long)block->len,
 			   (unsigned long long)block->hash);
-	if (rc == 0)
-		emit_patch(stream, MORPH_MD_PATCH_SEAL, json.data);
+	if (rc == 0 && stream->on_event) {
+		memset(&event, 0, sizeof(event));
+		event.type = MORPH_MD_EVENT_SEAL;
+		event.json = json.data;
+		event.offset = block->offset;
+		event.len = block->len;
+		event.hash = block->hash;
+		stream->on_event(&event, stream->user_data);
+	}
 	md_buf_cleanup(&json);
 	return rc;
 }
@@ -629,7 +651,7 @@ static size_t stable_prefix_len(const char *text, size_t len, int is_final)
 	return safe;
 }
 
-static int shift_tail(struct morph_md_stream *stream, size_t prefix_len)
+static int shift_tail(struct morph_md_engine *stream, size_t prefix_len)
 {
 	size_t rest;
 
@@ -646,7 +668,7 @@ static int shift_tail(struct morph_md_stream *stream, size_t prefix_len)
 	return 0;
 }
 
-static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
+static int commit_prefix(struct morph_md_engine *stream, size_t prefix_len)
 {
 	struct sealed_block *block;
 	uint64_t next_id;
@@ -680,7 +702,7 @@ static int commit_prefix(struct morph_md_stream *stream, size_t prefix_len)
 	return rc;
 }
 
-static int emit_pending(struct morph_md_stream *stream)
+static int emit_pending(struct morph_md_engine *stream)
 {
 	char *json;
 	uint64_t next_id;
@@ -695,13 +717,13 @@ static int emit_pending(struct morph_md_stream *stream)
 	next_id = stream->next_id;
 	stream_render_options(stream, &opts);
 	json = render_ir_json(stream->tail.data, stream->tail.len,
-			      stream->options.enable_gfm,
+			      (stream->options.features & MORPH_MD_FEATURE_GFM) != 0u,
 			      &opts, &next_id);
 	if (!json)
 		return MD_ERR_NOMEM;
 
 	if (!stream->pending_json || strcmp(stream->pending_json, json) != 0) {
-		emit_patch(stream, MORPH_MD_PATCH_UPDATE, json);
+		emit_patch(stream, MORPH_MD_EVENT_REPLACE, json);
 		free(stream->pending_json);
 		stream->pending_json = json;
 		return 0;
@@ -711,7 +733,7 @@ static int emit_pending(struct morph_md_stream *stream)
 	return 0;
 }
 
-static int process_stream(struct morph_md_stream *stream, int is_final)
+static int process_stream(struct morph_md_engine *stream, int is_final)
 {
 	size_t prefix_len;
 	int rc;
@@ -728,12 +750,12 @@ static int process_stream(struct morph_md_stream *stream, int is_final)
 
 	if (is_final && !stream->finished) {
 		stream->finished = 1;
-		emit_patch(stream, MORPH_MD_PATCH_FINISH, "{}");
+		emit_patch(stream, MORPH_MD_EVENT_FINISH, "{}");
 	}
 	return 0;
 }
 
-static int append_complete_utf8(struct morph_md_stream *stream,
+static int append_complete_utf8(struct morph_md_engine *stream,
 				const char *bytes, size_t len,
 				int is_final)
 {
@@ -766,35 +788,39 @@ static int append_complete_utf8(struct morph_md_stream *stream,
 	return rc;
 }
 
-struct morph_md_stream *morph_md_stream_create(
-	const struct morph_md_options *options,
-	morph_md_patch_cb callback,
-	void *user_data)
+int morph_md_engine_create(const struct morph_md_engine_options *options,
+			   struct morph_md_engine **out)
 {
-	struct morph_md_stream *stream;
+	struct morph_md_engine *stream;
+
+	if (!out)
+		return MD_ERR_INVALID;
+	*out = NULL;
 
 	stream = calloc(1u, sizeof(*stream));
 	if (!stream)
-		return NULL;
+		return MD_ERR_NOMEM;
 
 	if (options)
 		stream->options = *options;
 	if (stream->options.max_tail_bytes == 0)
 		stream->options.max_tail_bytes = DEFAULT_TAIL_BYTES;
 	if (!options)
-		stream->options.enable_gfm = 1;
+		stream->options.features =
+			MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
 
-	stream->callback = callback;
-	stream->user_data = user_data;
+	stream->on_event = stream->options.on_event;
+	stream->user_data = stream->options.user_data;
 	stream->next_id = 1u;
 	md_buf_init(&stream->sealed);
 	md_buf_init(&stream->tail);
 	md_buf_init(&stream->utf8_pending);
 	md_array_init(&stream->sealed_blocks, sizeof(struct sealed_block));
-	return stream;
+	*out = stream;
+	return MD_OK;
 }
 
-int morph_md_stream_append(struct morph_md_stream *stream,
+int morph_md_engine_append(struct morph_md_engine *stream,
 			   const char *bytes,
 			   size_t len,
 			   int is_final)
@@ -812,37 +838,57 @@ int morph_md_stream_append(struct morph_md_stream *stream,
 
 	rc = process_stream(stream, is_final);
 	if (rc != 0)
-		emit_patch(stream, MORPH_MD_PATCH_ERROR, "{\"error\":\"parse\"}");
+		emit_patch(stream, MORPH_MD_EVENT_ERROR, "{\"error\":\"parse\"}");
 	return rc;
 }
 
-char *morph_md_stream_snapshot(struct morph_md_stream *stream)
+int morph_md_engine_snapshot(struct morph_md_engine *stream,
+			     struct morph_md_doc **out)
 {
 	struct md_buf all;
+	struct morph_md_doc *doc;
 	char *json;
 	uint64_t next_id;
 	struct render_options opts;
+	int rc;
 
-	if (!stream)
-		return NULL;
+	if (!stream || !out)
+		return MD_ERR_INVALID;
+	*out = NULL;
 
 	md_buf_init(&all);
-	if (md_buf_append(&all, stream->sealed.data, stream->sealed.len) != 0)
-		return NULL;
-	if (md_buf_append(&all, stream->tail.data, stream->tail.len) != 0) {
-		md_buf_cleanup(&all);
-		return NULL;
-	}
+	rc = md_buf_append(&all, stream->sealed.data, stream->sealed.len);
+	if (rc == 0)
+		rc = md_buf_append(&all, stream->tail.data, stream->tail.len);
+	if (rc != 0)
+		goto out;
 
 	next_id = 1u;
 	stream_render_options(stream, &opts);
-	json = render_ir_json(all.data, all.len, stream->options.enable_gfm,
-			      &opts, &next_id);
+	json = render_ir_json(
+		all.data, all.len,
+		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u,
+		&opts, &next_id);
+	if (!json) {
+		rc = MD_ERR_NOMEM;
+		goto out;
+	}
+	doc = calloc(1u, sizeof(*doc));
+	if (!doc) {
+		free(json);
+		rc = MD_ERR_NOMEM;
+		goto out;
+	}
+	doc->json = json;
+	*out = doc;
+	rc = MD_OK;
+
+out:
 	md_buf_cleanup(&all);
-	return json;
+	return rc;
 }
 
-int morph_md_stream_get_stats(struct morph_md_stream *stream,
+int morph_md_engine_get_stats(struct morph_md_engine *stream,
 			      struct morph_md_stats *stats)
 {
 	if (!stream || !stats)
@@ -856,7 +902,84 @@ int morph_md_stream_get_stats(struct morph_md_stream *stream,
 	return MD_OK;
 }
 
-void morph_md_stream_destroy(struct morph_md_stream *stream)
+int morph_md_doc_to_json(const struct morph_md_doc *doc, char **out_json)
+{
+	char *copy;
+	size_t len;
+
+	if (!doc || !out_json)
+		return MD_ERR_INVALID;
+	*out_json = NULL;
+	if (!doc->json)
+		return MD_ERR_INVALID;
+
+	len = strlen(doc->json);
+	copy = malloc(len + 1u);
+	if (!copy)
+		return MD_ERR_NOMEM;
+	memcpy(copy, doc->json, len + 1u);
+	*out_json = copy;
+	return MD_OK;
+}
+
+static const char *event_type_name(enum morph_md_event_type type)
+{
+	switch (type) {
+	case MORPH_MD_EVENT_INSERT:
+		return "insert";
+	case MORPH_MD_EVENT_REPLACE:
+		return "replace";
+	case MORPH_MD_EVENT_SEAL:
+		return "seal";
+	case MORPH_MD_EVENT_FINISH:
+		return "finish";
+	case MORPH_MD_EVENT_ERROR:
+		return "error";
+	default:
+		return "unknown";
+	}
+}
+
+int morph_md_event_to_json(const struct morph_md_event *event,
+			   char **out_json)
+{
+	struct md_buf out;
+	const char *payload;
+	int rc;
+
+	if (!event || !out_json)
+		return MD_ERR_INVALID;
+	*out_json = NULL;
+	payload = event->json ? event->json : "{}";
+
+	md_buf_init(&out);
+	rc = md_buf_puts(&out, "{\"type\":");
+	if (rc == 0)
+		rc = json_escape(&out, event_type_name(event->type),
+				 strlen(event_type_name(event->type)));
+	if (rc == 0)
+		rc = md_buf_puts(&out, ",\"payload\":");
+	if (rc == 0)
+		rc = md_buf_puts(&out, payload);
+	if (rc == 0)
+		rc = md_buf_puts(&out, "}");
+	if (rc != 0) {
+		md_buf_cleanup(&out);
+		return rc;
+	}
+	*out_json = md_buf_detach(&out);
+	return *out_json ? MD_OK : MD_ERR_NOMEM;
+}
+
+void morph_md_doc_release(struct morph_md_doc *doc)
+{
+	if (!doc)
+		return;
+	free(doc->json);
+	free(doc);
+}
+
+void morph_md_engine_destroy(struct morph_md_engine *stream)
 {
 	if (!stream)
 		return;
