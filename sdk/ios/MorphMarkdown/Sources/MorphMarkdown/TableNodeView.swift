@@ -270,7 +270,7 @@ private struct MarkdownTableLayoutBuilder {
 	private func cellHeight(_ cell: MorphMarkdownNode, row: Int, column: Int, header: Bool, width: CGFloat) -> CGFloat {
 		let key = TableCellKey(row: row, column: column)
 		let estimated = estimatedContentHeight(cell, header: header, width: cellContentWidth(width))
-		let contentHeight = max(estimated, measuredCellHeights[key] ?? 0)
+		let contentHeight = measuredCellHeights[key].flatMap { $0 > 0 ? $0 : nil } ?? estimated
 		return contentHeight + theme.tableCellPaddingVerticalDp * 2
 	}
 
@@ -278,16 +278,7 @@ private struct MarkdownTableLayoutBuilder {
 		let nodes = inlineChildren(of: cell)
 		let minWidth = cellOuterWidth(intrinsicWidth(nodes, preferred: false))
 		let preferredWidth = cellOuterWidth(intrinsicWidth(nodes, preferred: true))
-		return TableCellWidth(
-			column: column,
-			minWidth: readableMinWidth(minWidth: minWidth, preferredWidth: preferredWidth),
-			preferredWidth: preferredWidth
-		)
-	}
-
-	private func readableMinWidth(minWidth: CGFloat, preferredWidth: CGFloat) -> CGFloat {
-		let readableFloor = cellOuterWidth(max(72, theme.bodyTextSizeSp * 4))
-		return max(minWidth, min(preferredWidth, readableFloor))
+		return TableCellWidth(column: column, minWidth: minWidth, preferredWidth: preferredWidth)
 	}
 
 	private func estimatedContentHeight(_ cell: MorphMarkdownNode, header: Bool, width: CGFloat) -> CGFloat {
@@ -310,7 +301,7 @@ private struct MarkdownTableLayoutBuilder {
 		case "math_inline":
 			return [mathItemSize(node.literal)]
 		case "image":
-			return [InlineItemSize(width: min(theme.imageMaxWidthDp, theme.tableCellMaxWidthDp), height: theme.imageMaxHeightDp)]
+			return [InlineItemSize(width: theme.imageMaxWidthDp, height: theme.imageMaxHeightDp + 12)]
 		default:
 			return textItemSizes(plainText(node), header: header)
 		}
@@ -358,7 +349,7 @@ private struct MarkdownTableLayoutBuilder {
 		case "math_inline":
 			return MarkdownTextMeasurer.width(node.literal, size: theme.mathSize(), monospace: true)
 		case "image":
-			return min(theme.imageMaxWidthDp, theme.tableCellMaxWidthDp)
+			return theme.imageMaxWidthDp
 		default:
 			return textWidth(plainText(node), preferred: preferred)
 		}

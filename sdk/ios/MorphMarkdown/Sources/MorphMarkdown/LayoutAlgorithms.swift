@@ -120,11 +120,26 @@ enum TableColumnSizer {
 		wrap: Bool
 	) -> [CGFloat] {
 		if columnCount <= 0 { return [] }
-		let columns = resolvedColumns(cells: cells, columnCount: columnCount, maxColumnWidth: maxColumnWidth, wrap: wrap)
-		guard wrap, let availableWidth, availableWidth > 0 else {
+		let columns = resolvedColumns(
+			cells: integerCells(cells),
+			columnCount: columnCount,
+			maxColumnWidth: ceil(maxColumnWidth),
+			wrap: wrap
+		)
+		guard wrap, let availableWidth = availableWidth.map({ floor($0) }), availableWidth > 0 else {
 			return columns.map(\.preferredWidth)
 		}
 		return fitColumns(columns, availableWidth: availableWidth)
+	}
+
+	private static func integerCells(_ cells: [TableCellWidth]) -> [TableCellWidth] {
+		cells.map { cell in
+			TableCellWidth(
+				column: cell.column,
+				minWidth: ceil(cell.minWidth),
+				preferredWidth: ceil(cell.preferredWidth)
+			)
+		}
 	}
 
 	private static func resolvedColumns(
@@ -178,9 +193,22 @@ enum TableColumnSizer {
 
 	private static func distribute(total: CGFloat, weights: [CGFloat]) -> [CGFloat] {
 		if total <= 0 || weights.isEmpty { return weights.map { _ in 0 } }
-		let sum = weights.reduce(0, +)
-		if sum <= 0 { return weights.map { _ in 0 } }
-		return weights.map { total * $0 / sum }
+		let intTotal = Int(total.rounded(.down))
+		let intWeights = weights.map { Int($0.rounded(.down)) }
+		let sum = intWeights.reduce(0, +)
+		if intTotal <= 0 || sum <= 0 { return weights.map { _ in 0 } }
+		let base = intWeights.map { intTotal * $0 / sum }
+		return addRemainder(base: base, weights: intWeights, remainder: intTotal - base.reduce(0, +)).map(CGFloat.init)
+	}
+
+	private static func addRemainder(base: [Int], weights: [Int], remainder: Int) -> [Int] {
+		if remainder <= 0 { return base }
+		var out = base
+		let order = weights.indices.sorted { weights[$0] > weights[$1] }
+		for i in 0..<remainder {
+			out[order[i % order.count]] += 1
+		}
+		return out
 	}
 }
 
