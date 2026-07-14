@@ -2,6 +2,7 @@ package com.morph.markdown
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.TypedValue
 import android.widget.ImageView
 import android.view.View
 import java.io.File
@@ -19,8 +20,8 @@ class MathJaxMathRenderer(context: Context) : MorphMathRenderer {
 		display: Boolean,
 		theme: MorphMarkdownTheme
 	): View? {
-		val size = theme.mathSize() * context.resources.displayMetrics.scaledDensity
-		val data = MarkdownNative.renderLatex(fontFile.absolutePath, latex, display, size)
+		val fontSizePx = spToPx(context, theme.mathSize())
+		val data = MarkdownNative.renderLatex(fontFile.absolutePath, latex, display, fontSizePx)
 		if (data == null || data.size < 3) return null
 		val bitmap = bitmapFromData(data)
 		return ImageView(context).apply {
@@ -45,5 +46,13 @@ class MathJaxMathRenderer(context: Context) : MorphMathRenderer {
 			}
 		}
 		return out
+	}
+
+	private fun spToPx(context: Context, sizeSp: Float): Float {
+		return TypedValue.applyDimension(
+			TypedValue.COMPLEX_UNIT_SP,
+			sizeSp,
+			context.resources.displayMetrics
+		)
 	}
 }

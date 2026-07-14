@@ -62,6 +62,7 @@ data class MorphMarkdownTheme(
 	val imageMaxHeightDp: Int = 180,
 	val mathTextSizeFollowsBody: Boolean = true,
 	val mathTextSizeSp: Float = 16f,
+	val mathTextScale: Float = 1.18f,
 	val textProcessor: MorphTextProcessor = MorphTextProcessor.None,
 	val fontProfile: MorphFontProfile = MorphFontProfile.System,
 	val fontAssetPath: String? = null,
@@ -76,7 +77,8 @@ data class MorphMarkdownTheme(
 	}
 
 	fun mathSize(): Float {
-		return if (mathTextSizeFollowsBody) bodyTextSizeSp else mathTextSizeSp
+		val base = if (mathTextSizeFollowsBody) bodyTextSizeSp else mathTextSizeSp
+		return base * mathTextScale
 	}
 }
 
