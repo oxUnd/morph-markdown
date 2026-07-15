@@ -90,7 +90,7 @@ final class TableScrollWrapper: UIView {
 		withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
 		verticalFittingPriority: UILayoutPriority
 	) -> CGSize {
-		let width = horizontalFittingPriority == .required ? targetSize.width : bounds.width
+		let width = targetSize.width > 0 ? targetSize.width : bounds.width
 		return sizeThatFits(CGSize(width: width, height: targetSize.height))
 	}
 
@@ -106,6 +106,7 @@ final class TableScrollWrapper: UIView {
 		scrollView.contentSize = content
 		scrollView.isScrollEnabled = !theme.tableCellWrap && content.width > bounds.width + 0.5
 		scrollView.showsHorizontalScrollIndicator = scrollView.isScrollEnabled
+		invalidateHeightIfNeeded(contentHeight: content.height)
 	}
 
 	private func resolvedWidth(_ width: CGFloat) -> CGFloat {
@@ -127,6 +128,15 @@ final class TableScrollWrapper: UIView {
 			return CGSize(width: viewportWidth, height: tableSize.height)
 		}
 		return CGSize(width: max(tableSize.width, viewportWidth), height: tableSize.height)
+	}
+
+	private func invalidateHeightIfNeeded(contentHeight: CGFloat) {
+		let expected = contentHeight + theme.tableTopSpacing + theme.tableBottomSpacing
+		guard expected > bounds.height + 0.5 else {
+			return
+		}
+		invalidateIntrinsicContentSize()
+		superview?.setNeedsLayout()
 	}
 }
 #endif
