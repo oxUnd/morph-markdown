@@ -56,8 +56,7 @@ endif()
 option(MORPH_MARKDOWN_BUILD_TESTS "Build markdown-render tests" ON)
 option(MORPH_MARKDOWN_BUILD_KITTY "Build Kitty terminal renderer demo" ON)
 
-set(MORPH_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.." CACHE PATH "morph root")
-set(MORPH_MATHJAX_DIR "${MORPH_ROOT_DIR}/vendor/mathjax-c" CACHE PATH "mathjax-c source")
+set(MORPH_MATHJAX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.third_party/mathjax-c" CACHE PATH "mathjax-c source")
 
 if(MORPH_MARKDOWN_BUILD_KITTY AND EXISTS "${MORPH_MATHJAX_DIR}/include/mathjax.h")
 	find_package(PkgConfig REQUIRED)

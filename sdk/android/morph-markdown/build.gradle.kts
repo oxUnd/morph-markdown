@@ -3,10 +3,11 @@ plugins {
 	id("org.jetbrains.kotlin.android")
 }
 
-val morphRootDir = projectDir.resolve("../../../../..").normalize()
-val mathJaxFontsDir = morphRootDir.resolve("vendor/mathjax-c/fonts")
+val repoDir = projectDir.resolve("../../..").normalize()
+val mathJaxFontsDir = repoDir.resolve(".third_party/mathjax-c/fonts")
 check(mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf").isFile) {
-	"Missing MathJax font asset: ${mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf")}"
+	"Missing MathJax font asset: ${mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf")}. " +
+		"Run scripts/prepare-third-party.sh from the repository root."
 }
 
 android {

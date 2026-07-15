@@ -18,15 +18,27 @@ include(FetchContent)
 set(MORPH_MARKDOWN_RENDER_DIR
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.."
 	CACHE PATH "markdown-render source root")
-set(MORPH_ROOT_DIR
-	"${MORPH_MARKDOWN_RENDER_DIR}/../.."
-	CACHE PATH "morph source root")
 set(MORPH_MATHJAX_DIR
-	"${MORPH_ROOT_DIR}/vendor/mathjax-c"
+	"${MORPH_MARKDOWN_RENDER_DIR}/.third_party/mathjax-c"
 	CACHE PATH "mathjax-c source root")
 set(MORPH_MATHJAX_ANDROID_PREFIX
-	"${MORPH_MARKDOWN_RENDER_DIR}/../android/third_party/media/${ANDROID_ABI}"
+	"${MORPH_MARKDOWN_RENDER_DIR}/sdk/android/morph-markdown/.build/vendor-android/${ANDROID_ABI}"
 	CACHE PATH "Android prefix containing freetype2 and harfbuzz")
+
+if(NOT EXISTS "${MORPH_MATHJAX_DIR}/include/mathjax.h")
+	message(FATAL_ERROR
+		"Missing MathJax-C at ${MORPH_MATHJAX_DIR}. "
+		"Run scripts/prepare-third-party.sh from the repository root, "
+		"or pass -DMORPH_MATHJAX_DIR=/path/to/mathjax-c.")
+endif()
+
+if(NOT EXISTS "${MORPH_MATHJAX_ANDROID_PREFIX}/lib/pkgconfig/freetype2.pc"
+	OR NOT EXISTS "${MORPH_MATHJAX_ANDROID_PREFIX}/lib/pkgconfig/harfbuzz.pc")
+	message(FATAL_ERROR
+		"Missing Android freetype/harfbuzz prefix at ${MORPH_MATHJAX_ANDROID_PREFIX}. "
+		"Run sdk/android/morph-markdown/scripts/prepare-android-deps.sh, "
+		"or pass -DMORPH_MATHJAX_ANDROID_PREFIX=/path/to/prefix.")
+endif()
 
 FetchContent_Declare(
 	cmark-gfm

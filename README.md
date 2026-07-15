@@ -62,6 +62,12 @@ SDKs render the serialized IR with native views.
 
 ## Kitty Demo
 
+Prepare third-party sources inside this checkout:
+
+```sh
+./scripts/prepare-third-party.sh
+```
+
 Build:
 
 ```sh
@@ -76,7 +82,7 @@ Run inside Kitty or a terminal compatible with Kitty graphics protocol:
 ```
 
 The demo simulates streamed model chunks, clears and redraws the Markdown view,
-and renders LaTeX through `vendor/mathjax-c` with Kitty graphics protocol.
+and renders LaTeX through `.third_party/mathjax-c` with Kitty graphics protocol.
 Formula font size follows the current terminal cell height by default, so
 inline math matches Kitty's body text size instead of using a hardcoded display
 size.
@@ -87,3 +93,16 @@ The Markdown fixture behind the demo is mirrored in
 
 Functions should stay below 200 lines. Keep new generic data structures in
 `src/base/` instead of embedding local one-off containers in feature files.
+
+## Third-party Dependencies
+
+This repository must build without paths outside its checkout. MathJax-C is
+downloaded to `.third_party/mathjax-c` by `scripts/prepare-third-party.sh`.
+Android FreeType/HarfBuzz libraries are generated on demand inside
+`sdk/android/morph-markdown/.build/vendor-android/<abi>` by:
+
+```sh
+sdk/android/morph-markdown/scripts/prepare-android-deps.sh
+```
+
+Both locations are build artifacts and are ignored by git.

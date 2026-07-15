@@ -12,9 +12,12 @@ Android/iOS SDK demos. Read this file before making changes in a new session.
 - Android demo lives in `demo/android/` and must only demonstrate SDK
   integration; reusable rendering code belongs in the SDK module.
 - iOS SwiftUI SDK lives in `sdk/ios/MorphMarkdown/`.
-- MathJax-C source is outside this checkout at
-  `/Users/xiangshouding/Work/AI/morph/vendor/mathjax-c`; Android CMake and the
-  root CMake build both reference that path through `MORPH_ROOT_DIR`.
+- MathJax-C is fetched into this checkout at `.third_party/mathjax-c` by
+  `scripts/prepare-third-party.sh`; do not add dependencies on directories
+  outside this repository.
+- Android FreeType/HarfBuzz for MathJax-C are prepared inside
+  `sdk/android/morph-markdown/.build/vendor-android/<abi>` by
+  `sdk/android/morph-markdown/scripts/prepare-android-deps.sh`.
 
 ## Coding Rules
 
@@ -81,20 +84,22 @@ Android/iOS SDK demos. Read this file before making changes in a new session.
 From `demo/android/`:
 
 ```sh
-../../../android/gradlew :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
+../../scripts/prepare-third-party.sh
+../../sdk/android/morph-markdown/scripts/prepare-android-deps.sh
+gradle :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
 When MathJax-C or native code changes, force a native rebuild:
 
 ```sh
-../../../android/gradlew --stop
-../../../android/gradlew clean :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
+gradle --stop
+gradle clean :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
 Install and launch Android demo:
 
 ```sh
-../../../android/gradlew :app:installDebug --console=plain --quiet
+gradle :app:installDebug --console=plain --quiet
 adb -s emulator-5554 shell am force-stop com.morph.markdown.demo
 adb -s emulator-5554 shell am start -n com.morph.markdown.demo/.MainActivity
 ```
@@ -102,6 +107,7 @@ adb -s emulator-5554 shell am start -n com.morph.markdown.demo/.MainActivity
 From repository root, build C core and Kitty demo:
 
 ```sh
+./scripts/prepare-third-party.sh
 cmake -S . -B build -DMORPH_MARKDOWN_BUILD_KITTY=ON -DMORPH_MARKDOWN_BUILD_TESTS=ON
 cmake --build build
 ```
@@ -109,6 +115,7 @@ cmake --build build
 From `sdk/ios/MorphMarkdown/`:
 
 ```sh
+../../../scripts/prepare-third-party.sh
 swift build
 ```
 

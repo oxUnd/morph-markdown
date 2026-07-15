@@ -1,2 +1,4 @@
 build/
 demo-output/
+.third_party/
+sdk/android/morph-markdown/.build/

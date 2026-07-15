@@ -8,12 +8,17 @@ MIN_IOS_VERSION=15.0
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PACKAGE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 REPO_DIR=$(CDPATH= cd -- "$PACKAGE_DIR/../../.." && pwd)
-MORPH_ROOT_DIR=$(CDPATH= cd -- "$REPO_DIR/../.." && pwd)
-MATHJAX_DIR="$MORPH_ROOT_DIR/vendor/mathjax-c"
+MATHJAX_DIR="${MORPH_MATHJAX_DIR:-$REPO_DIR/.third_party/mathjax-c}"
 SRC_DIR="$PACKAGE_DIR/.build/vendor-src"
 VENDOR_DIR="$PACKAGE_DIR/.build/vendor-ios"
 NATIVE_DIR="$PACKAGE_DIR/.build/native"
 NATIVE_IOS_DIR="$PACKAGE_DIR/.build/native-ios"
+
+if [ ! -f "$MATHJAX_DIR/include/mathjax.h" ]; then
+	echo "ERROR: missing MathJax-C at $MATHJAX_DIR" >&2
+	echo "Run scripts/prepare-third-party.sh from the repository root, or set MORPH_MATHJAX_DIR." >&2
+	exit 1
+fi
 
 mkdir -p "$SRC_DIR" "$VENDOR_DIR" "$NATIVE_DIR/include" "$NATIVE_IOS_DIR/combined"
 
@@ -183,6 +188,7 @@ build_morph_ios() {
 		-DCMAKE_OSX_ARCHITECTURES="$arch" \
 		-DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN_IOS_VERSION" \
 		-DCMAKE_MACOSX_BUNDLE=OFF \
+		-DMORPH_MATHJAX_DIR="$MATHJAX_DIR" \
 		-DMORPH_MARKDOWN_BUILD_KITTY=ON \
 		-DMORPH_MARKDOWN_BUILD_TESTS=OFF
 	cmake --build "$build" --target morph-markdown-render morph-mathjax
@@ -208,6 +214,7 @@ build_macos_slice() {
 	hb_prefix="$VENDOR_DIR/harfbuzz-macos"
 	build="$NATIVE_IOS_DIR/macos-build"
 	PKG_CONFIG_LIBDIR="$ft_prefix/lib/pkgconfig:$hb_prefix/lib/pkgconfig" cmake -S "$REPO_DIR" -B "$build" \
+		-DMORPH_MATHJAX_DIR="$MATHJAX_DIR" \
 		-DMORPH_MARKDOWN_BUILD_KITTY=ON \
 		-DMORPH_MARKDOWN_BUILD_TESTS=OFF \
 		-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
