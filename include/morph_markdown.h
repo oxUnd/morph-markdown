@@ -69,6 +69,9 @@ int morph_md_engine_snapshot(struct morph_md_engine *engine,
 int morph_md_engine_get_stats(struct morph_md_engine *engine,
 			      struct morph_md_stats *stats);
 
+int morph_md_engine_stable_block_count(struct morph_md_engine *engine,
+				       size_t *out_count);
+
 int morph_md_doc_to_json(const struct morph_md_doc *doc, char **out_json);
 
 int morph_md_event_to_json(const struct morph_md_event *event,

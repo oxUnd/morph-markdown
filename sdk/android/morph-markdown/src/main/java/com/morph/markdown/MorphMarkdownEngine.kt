@@ -15,6 +15,11 @@ class MorphMarkdownEngine : Closeable {
 		return MarkdownNative.snapshotJson(handle)
 	}
 
+	fun stableBlockCount(): Int {
+		if (handle == 0L) return 0
+		return MarkdownNative.stableBlockCount(handle)
+	}
+
 	override fun close() {
 		if (handle != 0L) {
 			MarkdownNative.destroyEngine(handle)

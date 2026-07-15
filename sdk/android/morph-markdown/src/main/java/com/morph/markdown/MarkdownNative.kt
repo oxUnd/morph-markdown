@@ -11,6 +11,8 @@ internal object MarkdownNative {
 
 	external fun snapshotJson(handle: Long): String?
 
+	external fun stableBlockCount(handle: Long): Int
+
 	external fun destroyEngine(handle: Long)
 
 	external fun renderLatex(

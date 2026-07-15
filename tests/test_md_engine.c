@@ -590,6 +590,40 @@ static int test_tail_limit_does_not_finish_stream(void)
 	return 0;
 }
 
+static int test_stable_block_count_tracks_sealed_prefix(void)
+{
+	struct morph_md_engine_options opts = {0};
+	struct morph_md_engine *stream;
+	size_t count;
+	int rc;
+
+	opts.features |= MORPH_MD_FEATURE_GFM;
+	stream = new_engine(&opts, NULL, NULL);
+	if (!stream)
+		return 140;
+
+	rc = morph_md_engine_append(stream, "# A\n", strlen("# A\n"), 0);
+	if (rc != 0)
+		return 141;
+	if (morph_md_engine_stable_block_count(stream, &count) != 0 || count != 0)
+		return 142;
+
+	rc = morph_md_engine_append(stream, "\nB\n\n", strlen("\nB\n\n"), 0);
+	if (rc != 0)
+		return 143;
+	if (morph_md_engine_stable_block_count(stream, &count) != 0 || count != 2)
+		return 144;
+
+	rc = morph_md_engine_append(stream, "C\n", strlen("C\n"), 1);
+	if (rc != 0)
+		return 145;
+	if (morph_md_engine_stable_block_count(stream, &count) != 0 || count != 3)
+		return 146;
+
+	morph_md_engine_destroy(stream);
+	return 0;
+}
+
 static int test_display_width_foundation(void)
 {
 	if (md_utf8_display_width("abc") != 3)
@@ -678,6 +712,10 @@ int main(void)
 		return rc;
 
 	rc = test_tail_limit_does_not_finish_stream();
+	if (rc != 0)
+		return rc;
+
+	rc = test_stable_block_count_tracks_sealed_prefix();
 	if (rc != 0)
 		return rc;
 

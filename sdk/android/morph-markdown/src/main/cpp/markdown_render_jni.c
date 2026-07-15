@@ -106,6 +106,27 @@ out:
 	return out;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_morph_markdown_MarkdownNative_stableBlockCount(
+	JNIEnv *env,
+	jobject thiz,
+	jlong handle)
+{
+	struct morph_md_engine *engine;
+	size_t count = 0;
+
+	(void)env;
+	(void)thiz;
+	engine = (struct morph_md_engine *)(intptr_t)handle;
+	if (!engine)
+		return 0;
+	if (morph_md_engine_stable_block_count(engine, &count) != 0)
+		return 0;
+	if (count > INT32_MAX)
+		return INT32_MAX;
+	return (jint)count;
+}
+
 JNIEXPORT void JNICALL
 Java_com_morph_markdown_MarkdownNative_destroyEngine(
 	JNIEnv *env,

@@ -16,6 +16,10 @@ class MorphMarkdownView @JvmOverloads constructor(
 		orientation = LinearLayout.VERTICAL
 	}
 	private val renderer = MorphMarkdownRenderer(context)
+	private val renderDebounce = RenderDebounceState()
+	private val scheduledRender = Runnable {
+		performRenderSnapshot(renderDebounce.onScheduledRender(), reuseStablePrefix = true)
+	}
 
 	var options = MorphMarkdownOptions()
 
@@ -23,28 +27,28 @@ class MorphMarkdownView @JvmOverloads constructor(
 		get() = renderer.theme
 		set(value) {
 			renderer.theme = value
-			renderSnapshot(false)
+			renderSnapshot(autoScroll = false, reuseStablePrefix = false)
 		}
 
 	var mathRenderer: MorphMathRenderer?
 		get() = renderer.mathRenderer
 		set(value) {
 			renderer.mathRenderer = value
-			renderSnapshot(false)
+			renderSnapshot(autoScroll = false, reuseStablePrefix = false)
 		}
 
 	var imageLoader: MorphImageLoader
 		get() = renderer.imageLoader
 		set(value) {
 			renderer.imageLoader = value
-			renderSnapshot(false)
+			renderSnapshot(autoScroll = false, reuseStablePrefix = false)
 		}
 
 	var onLinkClick: MorphMarkdownLinkHandler?
 		get() = renderer.onLinkClick
 		set(value) {
 			renderer.onLinkClick = value
-			renderSnapshot(false)
+			renderSnapshot(autoScroll = false, reuseStablePrefix = false)
 		}
 
 	init {
@@ -60,20 +64,36 @@ class MorphMarkdownView @JvmOverloads constructor(
 
 	fun append(markdown: String, final: Boolean = false) {
 		engine.append(markdown, final)
-		renderSnapshot(options.autoScrollOnAppend)
+		when (val decision = renderDebounce.onAppend(final, options.autoScrollOnAppend, options.appendRenderDebounceMs)) {
+			RenderDebounceDecision.None -> Unit
+			is RenderDebounceDecision.Schedule -> postDelayed(scheduledRender, decision.delayMs)
+			is RenderDebounceDecision.RenderNow -> renderSnapshot(decision.autoScroll, reuseStablePrefix = true)
+		}
 	}
 
-	fun renderSnapshot(autoScroll: Boolean = false) {
+	fun renderSnapshot(autoScroll: Boolean = false, reuseStablePrefix: Boolean = false) {
+		removeCallbacks(scheduledRender)
+		renderDebounce.cancel()
+		performRenderSnapshot(autoScroll, reuseStablePrefix)
+	}
+
+	private fun performRenderSnapshot(autoScroll: Boolean = false, reuseStablePrefix: Boolean) {
 		val json = engine.snapshotJson()
 		if (json == null) {
 			renderError()
 			return
 		}
-		renderer.render(json, body)
+		if (reuseStablePrefix) {
+			renderer.renderReusingStablePrefix(json, body, engine.stableBlockCount())
+		} else {
+			renderer.render(json, body)
+		}
 		if (autoScroll) post { fullScroll(View.FOCUS_DOWN) }
 	}
 
 	fun close() {
+		removeCallbacks(scheduledRender)
+		renderDebounce.cancel()
 		engine.close()
 	}
 

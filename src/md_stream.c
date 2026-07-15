@@ -902,6 +902,38 @@ int morph_md_engine_get_stats(struct morph_md_engine *stream,
 	return MD_OK;
 }
 
+int morph_md_engine_stable_block_count(struct morph_md_engine *stream,
+				       size_t *out_count)
+{
+	struct render_options opts;
+	cmark_node *doc;
+	cmark_node *child;
+	size_t count;
+
+	if (!stream || !out_count)
+		return MD_ERR_INVALID;
+	*out_count = 0;
+	if (stream->sealed.len == 0)
+		return MD_OK;
+
+	stream_render_options(stream, &opts);
+	doc = parse_markdown(
+		stream->sealed.data,
+		stream->sealed.len,
+		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u);
+	if (!doc)
+		return MD_ERR_NOMEM;
+
+	count = 0;
+	for (child = cmark_node_first_child(doc); child; child = cmark_node_next(child)) {
+		if (!should_skip_node(child, &opts))
+			count++;
+	}
+	cmark_node_free(doc);
+	*out_count = count;
+	return MD_OK;
+}
+
 int morph_md_doc_to_json(const struct morph_md_doc *doc, char **out_json)
 {
 	char *copy;

@@ -21,6 +21,11 @@ private data class LinkTarget(
 	val title: String?
 )
 
+private data class RenderedBlock(
+	val signature: String,
+	val viewCount: Int
+)
+
 class MorphMarkdownRenderer(
 	private val context: Context,
 	var theme: MorphMarkdownTheme = MorphMarkdownThemes.Normal,
@@ -28,16 +33,95 @@ class MorphMarkdownRenderer(
 	var imageLoader: MorphImageLoader = FileImageLoader(),
 	var onLinkClick: MorphMarkdownLinkHandler? = null
 ) {
+	private var renderedBlocks: List<RenderedBlock> = emptyList()
+
 	fun render(json: String, parent: LinearLayout) {
 		parent.removeAllViews()
 		val root = JSONObject(json)
-		renderChildren(root.optJSONArray("children"), parent)
+		renderedBlocks = renderChildrenFrom(root.optJSONArray("children"), parent, 0)
+	}
+
+	fun renderReusingStablePrefix(json: String, parent: LinearLayout, stableBlockCount: Int) {
+		val root = JSONObject(json)
+		val children = root.optJSONArray("children")
+		val nextSignatures = blockSignatures(children)
+		val blockPrefix = stableBlockPrefixLength(renderedBlocks, nextSignatures, stableBlockCount)
+		val childPrefix = stableChildPrefixLength(renderedBlocks, blockPrefix)
+		removeTail(parent, childPrefix)
+		val renderedTail = renderChildrenFrom(children, parent, blockPrefix)
+		renderedBlocks = renderedBlocks.take(blockPrefix) + renderedTail
 	}
 
 	private fun renderChildren(children: JSONArray?, parent: LinearLayout) {
 		if (children == null) return
 		for (i in 0 until children.length()) {
 			renderBlock(children.getJSONObject(i), parent)
+		}
+	}
+
+	private fun renderChildrenFrom(
+		children: JSONArray?,
+		parent: LinearLayout,
+		start: Int
+	): List<RenderedBlock> {
+		if (children == null) return emptyList()
+		val out = mutableListOf<RenderedBlock>()
+		for (i in start until children.length()) {
+			val before = parent.childCount
+			val block = children.getJSONObject(i)
+			renderBlock(block, parent)
+			out.add(RenderedBlock(canonicalJson(block), parent.childCount - before))
+		}
+		return out
+	}
+
+	private fun blockSignatures(children: JSONArray?): List<String> {
+		if (children == null) return emptyList()
+		return (0 until children.length()).map { i ->
+			canonicalJson(children.getJSONObject(i))
+		}
+	}
+
+	private fun stableBlockPrefixLength(
+		previous: List<RenderedBlock>,
+		next: List<String>,
+		stableBlockCount: Int
+	): Int {
+		val max = minOf(previous.size, next.size, stableBlockCount.coerceAtLeast(0))
+		for (i in 0 until max) {
+			if (previous[i].signature != next[i]) return i
+		}
+		return max
+	}
+
+	private fun stableChildPrefixLength(blocks: List<RenderedBlock>, blockPrefix: Int): Int {
+		return blocks.take(blockPrefix).sumOf { it.viewCount }
+	}
+
+	private fun removeTail(parent: LinearLayout, prefix: Int) {
+		val removeCount = parent.childCount - prefix
+		if (removeCount > 0) parent.removeViews(prefix, removeCount)
+	}
+
+	private fun canonicalJson(value: Any?): String {
+		return when (value) {
+			is JSONObject -> canonicalObject(value)
+			is JSONArray -> canonicalArray(value)
+			JSONObject.NULL, null -> "null"
+			else -> JSONObject.quote(value.toString())
+		}
+	}
+
+	private fun canonicalObject(obj: JSONObject): String {
+		val keys = obj.keys().asSequence().filter { it != "id" }.sorted().toList()
+		return keys.joinToString(prefix = "{", postfix = "}") { key ->
+			JSONObject.quote(key) + ":" + canonicalJson(obj.opt(key))
+		}
+	}
+
+	private fun canonicalArray(array: JSONArray): String {
+		return (0 until array.length()).joinToString(prefix = "[", postfix = "]") { i ->
+			canonicalJson(array.opt(i))
 		}
 	}
 
