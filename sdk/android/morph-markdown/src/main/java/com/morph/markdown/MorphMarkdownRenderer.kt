@@ -1,10 +1,17 @@
 package com.morph.markdown
 
 import android.content.Context
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.method.LinkMovementMethod
+import android.text.style.BackgroundColorSpan
+import android.text.style.ClickableSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.TypefaceSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONArray
@@ -25,6 +32,26 @@ private data class RenderedBlock(
 	val signature: String,
 	val viewCount: Int
 )
+
+private data class InlineSpanState(
+	var hasLink: Boolean = false
+)
+
+private class MorphInlineLinkSpan(
+	private val target: LinkTarget,
+	private val color: Int,
+	private val underline: Boolean,
+	private val handler: MorphMarkdownLinkHandler?
+) : ClickableSpan() {
+	override fun onClick(widget: View) {
+		handler?.invoke(target.url, target.title)
+	}
+
+	override fun updateDrawState(ds: TextPaint) {
+		ds.color = color
+		ds.isUnderlineText = underline
+	}
+}
 
 class MorphMarkdownRenderer(
 	private val context: Context,
@@ -255,6 +282,11 @@ class MorphMarkdownRenderer(
 	}
 
 	private fun inlineGroup(children: JSONArray?, compact: Boolean = false): View {
+		spannedInlineText(children, TableCellRole.None, compact)?.let { return it }
+		return inlineLayoutGroup(children, compact)
+	}
+
+	private fun inlineLayoutGroup(children: JSONArray?, compact: Boolean = false): InlineLayout {
 		val row = InlineLayout(context)
 		if (compact) {
 			row.setPadding(0, 0, 0, 0)
@@ -263,6 +295,163 @@ class MorphMarkdownRenderer(
 		}
 		populateInline(row, children, TableCellRole.None)
 		return row
+	}
+
+	private fun spannedInlineText(
+		children: JSONArray?,
+		role: TableCellRole,
+		compact: Boolean
+	): TextView? {
+		val out = SpannableStringBuilder()
+		val state = InlineSpanState()
+		if (!appendSpannableChildren(out, children, role, state, null)) return null
+		return spannedTextView(out, role, compact, state.hasLink)
+	}
+
+	private fun appendSpannableChildren(
+		out: SpannableStringBuilder,
+		children: JSONArray?,
+		role: TableCellRole,
+		state: InlineSpanState,
+		link: LinkTarget?
+	): Boolean {
+		if (children == null) return true
+		for (i in 0 until children.length()) {
+			if (!appendSpannableInline(out, children.getJSONObject(i), role, state, link)) return false
+		}
+		return true
+	}
+
+	private fun appendSpannableInline(
+		out: SpannableStringBuilder,
+		child: JSONObject,
+		role: TableCellRole,
+		state: InlineSpanState,
+		link: LinkTarget?
+	): Boolean {
+		return when (child.optString("kind")) {
+			"text" -> appendSpannableText(out, child.optString("literal"), role, state, link, code = false)
+			"code" -> appendSpannableText(out, child.optString("literal"), role, state, link, code = true)
+			"soft_break", "hard_break" -> appendSpannableText(out, "\n", role, state, link, code = false)
+			"link" -> appendSpannableLink(out, child, role, state)
+			else -> false
+		}
+	}
+
+	private fun appendSpannableLink(
+		out: SpannableStringBuilder,
+		child: JSONObject,
+		role: TableCellRole,
+		state: InlineSpanState
+	): Boolean {
+		val url = child.optString("url", "")
+		if (url.isEmpty()) return appendSpannableText(out, plainText(child), role, state, null, code = false)
+		val target = LinkTarget(url, child.optString("title").ifEmpty { null })
+		val children = child.optJSONArray("children")
+		if (children == null || children.length() == 0) {
+			return appendSpannableText(out, url, role, state, target, code = false)
+		}
+		return appendSpannableChildren(out, children, role, state, target)
+	}
+
+	private fun appendSpannableText(
+		out: SpannableStringBuilder,
+		value: String,
+		role: TableCellRole,
+		state: InlineSpanState,
+		link: LinkTarget?,
+		code: Boolean
+	): Boolean {
+		val start = out.length
+		val expanded = expandTabs(value, theme.tabSize)
+		out.append(processedText(expanded, theme, allowCjkSpacing = !code))
+		val end = out.length
+		if (end <= start) return true
+		if (code) applyInlineCodeSpans(out, start, end, role)
+		if (link != null) {
+			state.hasLink = true
+			out.setSpan(
+				MorphInlineLinkSpan(link, theme.linkTextColor, theme.linkUnderline, onLinkClick),
+				start,
+				end,
+				Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+			)
+		}
+		return true
+	}
+
+	private fun applyInlineCodeSpans(out: SpannableStringBuilder, start: Int, end: Int, role: TableCellRole) {
+		out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+		out.setSpan(BackgroundColorSpan(0xffeeeeea.toInt()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+		val ratio = theme.inlineCodeTextSizeSp / tableTextSize(role)
+		if (kotlin.math.abs(ratio - 1f) > 0.01f) {
+			out.setSpan(RelativeSizeSpan(ratio), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+		}
+	}
+
+	private fun spannedTextView(
+		value: CharSequence,
+		role: TableCellRole,
+		compact: Boolean,
+		hasLinks: Boolean
+	): TextView {
+		return TextView(context).apply {
+			text = value
+			textSize = tableTextSize(role)
+			setTextColor(if (role == TableCellRole.None) 0xff1b1b1b.toInt() else tableTextColor(role))
+			typeface = typefaceFor(context, theme, bold = role == TableCellRole.Header && theme.tableStyle.headerBold)
+			applySpannedTextMetrics(role)
+			applySpannedPadding(role, compact)
+			configureSpannedTableWrap(role)
+			if (hasLinks) configureLinkMovement()
+		}
+	}
+
+	private fun TextView.applySpannedTextMetrics(role: TableCellRole) {
+		if (role == TableCellRole.None) {
+			applyMorphTextMetrics(theme.bodyTextSizeSp, theme.bodyLineHeightMultiplier)
+		} else {
+			applyMorphTextMetrics(tableTextSize(role), theme.tableCellLineHeightMultiplier)
+		}
+	}
+
+	private fun TextView.applySpannedPadding(role: TableCellRole, compact: Boolean) {
+		val fontTop = paddingTop
+		val fontBottom = paddingBottom
+		if (role == TableCellRole.None) {
+			if (!compact) {
+				setPadding(
+					0,
+					context.dp(theme.paragraphTopSpacingDp) + fontTop,
+					0,
+					context.dp(theme.paragraphBottomSpacingDp) + fontBottom
+				)
+			}
+			return
+		}
+		setPadding(
+			context.dp(theme.tableCellPaddingHorizontalDp),
+			context.dp(theme.tableCellPaddingVerticalDp) + fontTop,
+			context.dp(theme.tableCellPaddingHorizontalDp),
+			context.dp(theme.tableCellPaddingVerticalDp) + fontBottom
+		)
+	}
+
+	private fun TextView.configureSpannedTableWrap(role: TableCellRole) {
+		if (role == TableCellRole.None) return
+		if (theme.tableCellWrap) {
+			setSingleLine(false)
+			setHorizontallyScrolling(false)
+		} else {
+			setSingleLine(true)
+			setHorizontallyScrolling(true)
+		}
+	}
+
+	private fun TextView.configureLinkMovement() {
+		linksClickable = true
+		movementMethod = LinkMovementMethod.getInstance()
+		highlightColor = 0x1a2f6f73
 	}
 
 	private fun populateInline(row: ViewGroup, children: JSONArray?, role: TableCellRole) {
@@ -412,7 +601,7 @@ class MorphMarkdownRenderer(
 		val role = if (header) TableCellRole.Header else TableCellRole.Body
 		for (j in 0 until cells.length()) {
 			val cellNode = cells.getJSONObject(j)
-			val cell = InlineLayout(context).apply {
+			val cell = spannedInlineText(inlineChildrenOf(cellNode), role, compact = true) ?: InlineLayout(context).apply {
 				lineSpacingPx = context.dp(theme.tableCellLineSpacingDp)
 				minLineHeightPx = tableLineHeightPx(role)
 				setPadding(
@@ -421,8 +610,8 @@ class MorphMarkdownRenderer(
 					context.dp(theme.tableCellPaddingHorizontalDp),
 					context.dp(theme.tableCellPaddingVerticalDp)
 				)
+				populateInline(this, inlineChildrenOf(cellNode), role)
 			}
-			populateInline(cell, inlineChildrenOf(cellNode), role)
 			table.addCell(cell)
 		}
 	}
@@ -509,8 +698,10 @@ class MorphMarkdownRenderer(
 	private fun tableTextSize(role: TableCellRole): Float {
 		return if (role == TableCellRole.Header) {
 			theme.tableStyle.headerTextSizeSp ?: theme.bodyTextSizeSp
-		} else {
+		} else if (role == TableCellRole.Body) {
 			theme.tableStyle.bodyTextSizeSp ?: theme.bodyTextSizeSp
+		} else {
+			theme.bodyTextSizeSp
 		}
 	}
 
