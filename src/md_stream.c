@@ -4,6 +4,7 @@
 #include "base/md_error.h"
 #include "base/md_hash.h"
 #include "base/md_utf8.h"
+#include "md_math_ext.h"
 
 #include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
@@ -162,6 +163,11 @@ static int append_node_attrs(struct md_buf *out, cmark_node *node)
 	}
 
 	literal = cmark_node_get_literal(node);
+	if (!literal &&
+	    (cmark_node_get_type(node) == MORPH_MD_NODE_MATH_INLINE ||
+	     cmark_node_get_type(node) == MORPH_MD_NODE_MATH_BLOCK)) {
+		literal = morph_md_math_literal(node);
+	}
 	rc = append_attr_string(out, "literal", literal);
 	if (rc != 0)
 		return rc;
@@ -418,9 +424,11 @@ static void attach_extension(cmark_parser *parser, const char *name)
 		cmark_parser_attach_syntax_extension(parser, extension);
 }
 
-static cmark_node *parse_markdown(const char *md, size_t len, int enable_gfm)
+static cmark_node *parse_markdown(const char *md, size_t len,
+				  int enable_gfm, int enable_math)
 {
 	cmark_parser *parser;
+	cmark_syntax_extension *math;
 	cmark_node *doc;
 	int options;
 
@@ -439,6 +447,11 @@ static cmark_node *parse_markdown(const char *md, size_t len, int enable_gfm)
 		attach_extension(parser, "tasklist");
 		attach_extension(parser, "footnotes");
 	}
+	if (enable_math) {
+		math = morph_md_create_math_extension();
+		if (math)
+			cmark_parser_attach_syntax_extension(parser, math);
+	}
 
 	cmark_parser_feed(parser, md ? md : "", len);
 	doc = cmark_parser_finish(parser);
@@ -454,7 +467,7 @@ static char *render_ir_json(const char *md, size_t len, int enable_gfm,
 	cmark_node *doc;
 	int rc;
 
-	doc = parse_markdown(md, len, enable_gfm);
+	doc = parse_markdown(md, len, enable_gfm, opts->enable_math);
 	if (!doc)
 		return NULL;
 
@@ -505,7 +518,8 @@ static int emit_top_level_inserts(struct morph_md_engine *stream,
 	stream_render_options(stream, &opts);
 	doc = parse_markdown(
 		md, len,
-		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u);
+		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u,
+		opts.enable_math);
 	if (!doc)
 		return MD_ERR_PARSE;
 
@@ -920,7 +934,8 @@ int morph_md_engine_stable_block_count(struct morph_md_engine *stream,
 	doc = parse_markdown(
 		stream->sealed.data,
 		stream->sealed.len,
-		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u);
+		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u,
+		opts.enable_math);
 	if (!doc)
 		return MD_ERR_NOMEM;
 

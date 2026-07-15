@@ -31,6 +31,7 @@ add_library(morph-markdown-render STATIC
 	src/base/md_strmap.c
 	src/base/md_utf8.c
 	src/base/md_width.c
+	src/md_math_ext.c
 	src/md_stream.c
 )
 

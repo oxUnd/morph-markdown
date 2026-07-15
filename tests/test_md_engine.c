@@ -212,6 +212,41 @@ static int test_math_toggle(void)
 	return 0;
 }
 
+static int test_math_extension_protects_markdown_delimiters(void)
+{
+	struct morph_md_engine_options opts = {0};
+	struct morph_md_engine *stream;
+	const char *input;
+	char *snapshot;
+	int rc;
+
+	opts.features |= MORPH_MD_FEATURE_GFM;
+	opts.features |= MORPH_MD_FEATURE_MATH;
+	stream = new_engine(&opts, NULL, NULL);
+	if (!stream)
+		return 28;
+
+	input = "| kkt |\n|---|\n| $\\begin{aligned}\\nabla f(x^*)+A^T\\lambda&=0\\\\Ax^*-b&=0\\end{aligned}$ |\n";
+	rc = morph_md_engine_append(stream, input, strlen(input), 1);
+	if (rc != 0)
+		return 29;
+
+	snapshot = snapshot_json(stream);
+	if (!snapshot)
+		return 30;
+	if (!contains(snapshot, "\"math_inline\"") ||
+	    contains(snapshot, "\"emph\"") ||
+	    !contains(snapshot, "x^*")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_engine_destroy(stream);
+		return 31;
+	}
+	morph_md_free(snapshot);
+	morph_md_engine_destroy(stream);
+	return 0;
+}
+
 static int test_sourcepos_image_and_tasklist(void)
 {
 	struct patch_counter counter = {0};
@@ -668,6 +703,10 @@ int main(void)
 		return rc;
 
 	rc = test_math_toggle();
+	if (rc != 0)
+		return rc;
+
+	rc = test_math_extension_protects_markdown_delimiters();
 	if (rc != 0)
 		return rc;
 

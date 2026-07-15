@@ -73,6 +73,7 @@ add_library(morph-markdown SHARED
 	${MORPH_MARKDOWN_RENDER_DIR}/src/base/md_strmap.c
 	${MORPH_MARKDOWN_RENDER_DIR}/src/base/md_utf8.c
 	${MORPH_MARKDOWN_RENDER_DIR}/src/base/md_width.c
+	${MORPH_MARKDOWN_RENDER_DIR}/src/md_math_ext.c
 	${MORPH_MARKDOWN_RENDER_DIR}/src/md_stream.c
 	${MORPH_MATHJAX_DIR}/src/api.c
 	${MORPH_MATHJAX_DIR}/src/ast/node.c
