@@ -16,6 +16,7 @@ import android.view.WindowManager
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.morph.markdown.FileImageLoader
@@ -76,6 +77,9 @@ class MainActivity : Activity() {
 			setPadding(0, 0, 0, insetBottom)
 			mathRenderer = MathJaxMathRenderer(this@MainActivity)
 			imageLoader = FileImageLoader()
+			onLinkClick = { url, _ ->
+				Toast.makeText(this@MainActivity, url, Toast.LENGTH_SHORT).show()
+			}
 		}
 		root.addView(controlsHost, LinearLayout.LayoutParams(-1, -2))
 		root.addView(markdownView, LinearLayout.LayoutParams(-1, 0, 1f))

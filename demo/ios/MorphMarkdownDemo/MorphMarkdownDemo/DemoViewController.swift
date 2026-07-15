@@ -5,6 +5,7 @@ final class DemoViewController: UIViewController {
 	private let controls = UIStackView()
 	private let controlsScroll = UIScrollView()
 	private let markdownView = MorphMarkdownUIView()
+	private let linkToast = UILabel()
 	private var chunks: [StreamChunk] = []
 	private var chunkIndex = 0
 	private var timer: Timer?
@@ -37,6 +38,9 @@ final class DemoViewController: UIViewController {
 			markdownView.mathRenderer = MathJaxMathRenderer(fontPath: path)
 		}
 		markdownView.theme = currentTheme()
+		markdownView.onLinkClick = { [weak self] url, _ in
+			self?.showLinkToast(url)
+		}
 	}
 
 	private func configureControls() {
@@ -53,6 +57,7 @@ final class DemoViewController: UIViewController {
 		markdownView.translatesAutoresizingMaskIntoConstraints = false
 		view.addSubview(controlsScroll)
 		view.addSubview(markdownView)
+		configureLinkToast()
 		NSLayoutConstraint.activate([
 			controlsScroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
 			controlsScroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -64,8 +69,37 @@ final class DemoViewController: UIViewController {
 			markdownView.topAnchor.constraint(equalTo: controlsScroll.bottomAnchor),
 			markdownView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
 			markdownView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-			markdownView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+			markdownView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+			linkToast.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+			linkToast.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+			linkToast.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+			linkToast.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -18)
 		])
+	}
+
+	private func configureLinkToast() {
+		linkToast.alpha = 0
+		linkToast.numberOfLines = 1
+		linkToast.font = UIFont.systemFont(ofSize: 13, weight: .medium)
+		linkToast.textColor = .white
+		linkToast.backgroundColor = UIColor.black.withAlphaComponent(0.78)
+		linkToast.layer.cornerRadius = 8
+		linkToast.layer.masksToBounds = true
+		linkToast.textAlignment = .center
+		linkToast.translatesAutoresizingMaskIntoConstraints = false
+		view.addSubview(linkToast)
+	}
+
+	private func showLinkToast(_ url: String) {
+		linkToast.text = "  \(url)  "
+		UIView.animate(withDuration: 0.12) {
+			self.linkToast.alpha = 1
+		}
+		DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+			UIView.animate(withDuration: 0.2) {
+				self?.linkToast.alpha = 0
+			}
+		}
 	}
 
 	private func rebuildControls() {

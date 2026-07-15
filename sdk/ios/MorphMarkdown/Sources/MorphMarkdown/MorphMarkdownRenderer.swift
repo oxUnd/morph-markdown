@@ -12,6 +12,7 @@ final class MorphMarkdownRenderer {
 	var mathRenderer: MorphMathRenderer?
 	var imageLoader: MorphImageLoader = FileImageLoader()
 	var viewportWidthOverride: CGFloat?
+	var onLinkClick: MorphMarkdownLinkHandler?
 
 	func render(json: String, parent: UIStackView) {
 		parent.removeAllArrangedSubviews()

@@ -68,7 +68,7 @@ func attributedText(_ text: String, label: UILabel, theme: MorphMarkdownTheme) -
 	])
 }
 
-final class InsetLabel: UILabel {
+class InsetLabel: UILabel {
 	var contentInsets: UIEdgeInsets = .zero
 
 	override var intrinsicContentSize: CGSize {
@@ -110,6 +110,66 @@ final class InsetLabel: UILabel {
 		paragraph.lineBreakMode = lineBreakMode
 		mutable.addAttributes([.font: font as Any, .paragraphStyle: paragraph], range: range)
 		return mutable
+	}
+}
+
+final class LinkLabel: InsetLabel {
+	var url: String = ""
+	var title: String?
+	var onLinkClick: MorphMarkdownLinkHandler?
+	var drawLinkUnderline = true
+	var linkColor = UIColor(argb: 0xff2f6f73)
+	private let pressedColor = UIColor(argb: 0x1a2f6f73)
+
+	override init(frame: CGRect) {
+		super.init(frame: frame)
+		configureTap()
+	}
+
+	required init?(coder: NSCoder) {
+		super.init(coder: coder)
+		configureTap()
+	}
+
+	@objc private func didTap() {
+		onLinkClick?(url, title)
+	}
+
+	override func drawText(in rect: CGRect) {
+		super.drawText(in: rect)
+		guard drawLinkUnderline else {
+			return
+		}
+		let contentRect = rect.inset(by: contentInsets)
+		let y = contentRect.maxY - 1
+		guard let context = UIGraphicsGetCurrentContext() else {
+			return
+		}
+		context.setStrokeColor(linkColor.cgColor)
+		context.setLineWidth(1)
+		context.move(to: CGPoint(x: contentRect.minX, y: y))
+		context.addLine(to: CGPoint(x: contentRect.maxX, y: y))
+		context.strokePath()
+	}
+
+	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+		backgroundColor = pressedColor
+		super.touchesBegan(touches, with: event)
+	}
+
+	override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+		backgroundColor = .clear
+		super.touchesEnded(touches, with: event)
+	}
+
+	override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+		backgroundColor = .clear
+		super.touchesCancelled(touches, with: event)
+	}
+
+	private func configureTap() {
+		isUserInteractionEnabled = true
+		addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTap)))
 	}
 }
 #endif

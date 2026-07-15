@@ -76,6 +76,8 @@ data class MorphMarkdownTheme(
 	val tableStyle: MorphTableStyle = MorphTableStyle(),
 	val imageMaxWidthDp: Int = 320,
 	val imageMaxHeightDp: Int = 180,
+	val linkTextColor: Int = 0xff2f6f73.toInt(),
+	val linkUnderline: Boolean = true,
 	val mathTextSizeFollowsBody: Boolean = true,
 	val mathTextSizeSp: Float = 16f,
 	val mathTextScale: Float = 1.18f,

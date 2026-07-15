@@ -40,6 +40,13 @@ class MorphMarkdownView @JvmOverloads constructor(
 			renderSnapshot(false)
 		}
 
+	var onLinkClick: MorphMarkdownLinkHandler?
+		get() = renderer.onLinkClick
+		set(value) {
+			renderer.onLinkClick = value
+			renderSnapshot(false)
+		}
+
 	init {
 		clipToPadding = true
 		addView(

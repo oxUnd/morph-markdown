@@ -95,6 +95,8 @@ public struct MorphMarkdownTheme: Equatable {
 	public var tableStyle: MorphTableStyle = MorphTableStyle()
 	public var imageMaxWidth: CGFloat = 320
 	public var imageMaxHeight: CGFloat = 180
+	public var linkTextColor: UInt32 = 0xff2f6f73
+	public var linkUnderline: Bool = true
 	public var mathTextSizeFollowsBody: Bool = true
 	public var mathTextSize: CGFloat = 16
 	public var mathTextScale: CGFloat = 1.18

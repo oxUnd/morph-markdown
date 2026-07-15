@@ -16,11 +16,17 @@ private enum class TableCellRole {
 	Body
 }
 
+private data class LinkTarget(
+	val url: String,
+	val title: String?
+)
+
 class MorphMarkdownRenderer(
 	private val context: Context,
 	var theme: MorphMarkdownTheme = MorphMarkdownThemes.Normal,
 	var mathRenderer: MorphMathRenderer? = null,
-	var imageLoader: MorphImageLoader = FileImageLoader()
+	var imageLoader: MorphImageLoader = FileImageLoader(),
+	var onLinkClick: MorphMarkdownLinkHandler? = null
 ) {
 	fun render(json: String, parent: LinearLayout) {
 		parent.removeAllViews()
@@ -176,29 +182,99 @@ class MorphMarkdownRenderer(
 	}
 
 	private fun populateInline(row: ViewGroup, children: JSONArray?, role: TableCellRole) {
+		populateInline(row, children, role, null)
+	}
+
+	private fun populateInline(row: ViewGroup, children: JSONArray?, role: TableCellRole, link: LinkTarget?) {
 		if (children == null) return
 		for (i in 0 until children.length()) {
-			addInline(row, children.getJSONObject(i), role)
+			addInline(row, children.getJSONObject(i), role, link)
 		}
 	}
 
-	private fun addInline(row: ViewGroup, child: JSONObject, role: TableCellRole) {
+	private fun addInline(row: ViewGroup, child: JSONObject, role: TableCellRole, link: LinkTarget? = null) {
 		when (child.optString("kind")) {
-			"text" -> addInlineText(row, child.optString("literal"), role)
-			"code" -> row.addView(inlineCode(child.optString("literal"), role))
-			"soft_break", "hard_break" -> addInlineText(row, "\n", role)
-			"math_inline" -> row.addView(mathView(child.optString("literal"), false, role))
-			"math_block" -> row.addView(mathView(child.optString("literal"), true, role))
-			"image" -> row.addView(imageView(child))
-			else -> addInlineText(row, plainText(child), role)
+			"text" -> addInlineText(row, child.optString("literal"), role, link)
+			"code" -> row.addView(linkedView(inlineCode(child.optString("literal"), role), link))
+			"soft_break", "hard_break" -> addInlineText(row, "\n", role, link)
+			"math_inline" -> row.addView(linkedView(mathView(child.optString("literal"), false, role), link))
+			"math_block" -> row.addView(linkedView(mathView(child.optString("literal"), true, role), link))
+			"image" -> row.addView(linkedView(imageView(child), link))
+			"link" -> addLinkInline(row, child, role)
+			else -> addInlineText(row, plainText(child), role, link)
 		}
 	}
 
-	private fun addInlineText(row: ViewGroup, value: String, role: TableCellRole) {
+	private fun addLinkInline(row: ViewGroup, child: JSONObject, role: TableCellRole) {
+		val url = child.optString("url", "")
+		if (url.isEmpty()) {
+			addInlineText(row, plainText(child), role, null)
+			return
+		}
+		val title = child.optString("title").ifEmpty { null }
+		val children = child.optJSONArray("children")
+		if (children == null || children.length() == 0) {
+			addInlineText(row, url, role, LinkTarget(url, title))
+			return
+		}
+		populateInline(row, children, role, LinkTarget(url, title))
+	}
+
+	private fun addInlineText(row: ViewGroup, value: String, role: TableCellRole, link: LinkTarget? = null) {
 		val expanded = expandTabs(value, theme.tabSize)
 		val spaced = processedText(expanded, theme, allowCjkSpacing = true).toString()
 		for (fragment in InlineTextFragmenter.fragments(spaced)) {
-			row.addView(cellText(fragment, role, expand = false, allowCjkSpacing = false))
+			row.addView(inlineTextFragment(fragment, role, link))
+		}
+	}
+
+	private fun inlineTextFragment(value: String, role: TableCellRole, link: LinkTarget?): TextView {
+		if (link == null) return cellText(value, role, expand = false, allowCjkSpacing = false)
+		return linkText(value, role).also {
+			linkedView(it, link)
+		}
+	}
+
+	private fun linkedView(view: View, link: LinkTarget?): View {
+		if (link == null) return view
+		view.isClickable = true
+		view.setOnClickListener {
+			onLinkClick?.invoke(link.url, link.title)
+		}
+		return view
+	}
+
+	private fun linkText(value: String, role: TableCellRole): LinkTextView {
+		return LinkTextView(context).apply {
+			text = processedText(value, theme, allowCjkSpacing = false)
+			textSize = tableTextSize(role)
+			setTextColor(theme.linkTextColor)
+			linkColor = theme.linkTextColor
+			drawLinkUnderline = theme.linkUnderline
+			typeface = linkTypeface(role)
+			applyMorphTextMetrics(tableTextSize(role), linkLineHeightMultiplier(role))
+			setSingleLine(true)
+			if (role != TableCellRole.None && theme.tableCellWrap) {
+				setHorizontallyScrolling(false)
+			} else if (role != TableCellRole.None) {
+				setHorizontallyScrolling(true)
+			}
+		}
+	}
+
+	private fun linkTypeface(role: TableCellRole): android.graphics.Typeface {
+		return typefaceFor(
+			context,
+			theme,
+			bold = role == TableCellRole.Header && theme.tableStyle.headerBold
+		)
+	}
+
+	private fun linkLineHeightMultiplier(role: TableCellRole): Float {
+		return if (role == TableCellRole.None) {
+			theme.bodyLineHeightMultiplier
+		} else {
+			theme.tableCellLineHeightMultiplier
 		}
 	}
 

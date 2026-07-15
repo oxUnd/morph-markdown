@@ -43,6 +43,14 @@ public final class MorphMarkdownUIView: UIScrollView {
 		}
 	}
 
+	public var onLinkClick: MorphMarkdownLinkHandler? {
+		get { renderer.onLinkClick }
+		set {
+			renderer.onLinkClick = newValue
+			renderSnapshot(autoScroll: false)
+		}
+	}
+
 	public override init(frame: CGRect) {
 		guard let engine = MorphMarkdownEngine() else {
 			fatalError("failed to create MorphMarkdownEngine")

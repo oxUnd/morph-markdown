@@ -251,6 +251,44 @@ static int test_sourcepos_image_and_tasklist(void)
 	return counter.seals > 0 ? 0 : 34;
 }
 
+static int test_links_preserve_url_title_and_autolink(void)
+{
+	struct morph_md_engine_options opts = {0};
+	struct morph_md_engine *stream;
+	const char *input;
+	char *snapshot;
+	int rc;
+
+	opts.features |= MORPH_MD_FEATURE_GFM;
+	input = "[Morph](https://example.com \"site\") and <https://autolink.example>\n";
+	stream = new_engine(&opts, NULL, NULL);
+	if (!stream)
+		return 140;
+
+	rc = morph_md_engine_append(stream, input, strlen(input), 1);
+	if (rc != 0)
+		return 141;
+
+	snapshot = snapshot_json(stream);
+	if (!snapshot)
+		return 142;
+	if (!contains(snapshot, "\"kind\":\"link\"") ||
+	    !contains(snapshot, "\"url\":\"https://example.com\"") ||
+	    !contains(snapshot, "\"title\":\"site\"") ||
+	    !contains(snapshot, "\"literal\":\"Morph\"") ||
+	    !contains(snapshot, "\"url\":\"https://autolink.example\"") ||
+	    !contains(snapshot, "\"literal\":\"https://autolink.example\"")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_engine_destroy(stream);
+		return 143;
+	}
+
+	morph_md_free(snapshot);
+	morph_md_engine_destroy(stream);
+	return 0;
+}
+
 static int test_list_metadata(void)
 {
 	struct morph_md_engine_options opts = {0};
@@ -600,6 +638,10 @@ int main(void)
 		return rc;
 
 	rc = test_sourcepos_image_and_tasklist();
+	if (rc != 0)
+		return rc;
+
+	rc = test_links_preserve_url_title_and_autolink();
 	if (rc != 0)
 		return rc;
 
