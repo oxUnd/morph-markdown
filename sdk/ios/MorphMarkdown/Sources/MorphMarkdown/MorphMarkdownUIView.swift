@@ -7,6 +7,17 @@ public final class MorphMarkdownUIView: UIScrollView {
 	private let renderer = MorphMarkdownRenderer()
 
 	public var options = MorphMarkdownOptions()
+	public var viewportWidthOverride: CGFloat? {
+		get { renderer.viewportWidthOverride }
+		set {
+			let width = Self.validViewportWidth(newValue)
+			guard renderer.viewportWidthOverride != width else {
+				return
+			}
+			renderer.viewportWidthOverride = width
+			renderSnapshot(autoScroll: false)
+		}
+	}
 
 	public var theme: MorphMarkdownTheme {
 		get { renderer.theme }
@@ -121,6 +132,13 @@ public final class MorphMarkdownUIView: UIScrollView {
 	private func scrollToBottom() {
 		let y = max(0, contentSize.height - bounds.height)
 		setContentOffset(CGPoint(x: 0, y: y), animated: false)
+	}
+
+	private static func validViewportWidth(_ width: CGFloat?) -> CGFloat? {
+		guard let width, width > 0, width < CGFloat.greatestFiniteMagnitude else {
+			return nil
+		}
+		return width
 	}
 }
 

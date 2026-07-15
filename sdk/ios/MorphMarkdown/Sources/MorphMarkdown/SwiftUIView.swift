@@ -6,17 +6,20 @@ public struct MorphMarkdownView: UIViewRepresentable {
 	private let theme: MorphMarkdownTheme
 	private let mathRenderer: MorphMathRenderer?
 	private let imageLoader: MorphImageLoader
+	private let viewportWidth: CGFloat?
 
 	public init(
 		markdown: String,
 		theme: MorphMarkdownTheme = MorphMarkdownThemes.normal,
 		mathRenderer: MorphMathRenderer? = MathJaxMathRenderer(),
-		imageLoader: MorphImageLoader = FileImageLoader()
+		imageLoader: MorphImageLoader = FileImageLoader(),
+		viewportWidth: CGFloat? = nil
 	) {
 		chunks = [markdown]
 		self.theme = theme
 		self.mathRenderer = mathRenderer
 		self.imageLoader = imageLoader
+		self.viewportWidth = viewportWidth
 	}
 
 	public func makeUIView(context: Context) -> MorphMarkdownUIView {
@@ -24,10 +27,12 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		view.theme = theme
 		view.mathRenderer = mathRenderer
 		view.imageLoader = imageLoader
+		view.viewportWidthOverride = viewportWidth
 		return view
 	}
 
 	public func updateUIView(_ uiView: MorphMarkdownUIView, context: Context) {
+		uiView.viewportWidthOverride = viewportWidth
 		context.coordinator.render(chunks: chunks, into: uiView)
 	}
 

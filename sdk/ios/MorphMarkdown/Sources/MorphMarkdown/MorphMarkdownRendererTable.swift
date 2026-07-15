@@ -13,7 +13,10 @@ extension MorphMarkdownRenderer {
 		scroll.alwaysBounceHorizontal = false
 		scroll.showsHorizontalScrollIndicator = true
 		scroll.addSubview(table)
-		let wrapper = TableScrollWrapper(scrollView: scroll, tableView: table, theme: theme)
+		let wrapper = TableScrollWrapper(scrollView: scroll,
+						 tableView: table,
+						 theme: theme,
+						 viewportWidthOverride: viewportWidthOverride)
 		return wrapper
 	}
 
@@ -56,11 +59,13 @@ final class TableScrollWrapper: UIView {
 	private let scrollView: UIScrollView
 	private let tableView: MarkdownTableView
 	private let theme: MorphMarkdownTheme
+	private let viewportWidthOverride: CGFloat?
 
-	init(scrollView: UIScrollView, tableView: MarkdownTableView, theme: MorphMarkdownTheme) {
+	init(scrollView: UIScrollView, tableView: MarkdownTableView, theme: MorphMarkdownTheme, viewportWidthOverride: CGFloat?) {
 		self.scrollView = scrollView
 		self.tableView = tableView
 		self.theme = theme
+		self.viewportWidthOverride = viewportWidthOverride
 		super.init(frame: .zero)
 		clipsToBounds = true
 		addSubview(scrollView)
@@ -96,9 +101,10 @@ final class TableScrollWrapper: UIView {
 
 	override func layoutSubviews() {
 		super.layoutSubviews()
-		tableView.viewportWidthHint = bounds.width
-		let fit = tableView.sizeThatFits(CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude))
-		let content = contentSize(for: fit, viewportWidth: bounds.width)
+		let viewportWidth = resolvedWidth(bounds.width)
+		tableView.viewportWidthHint = viewportWidth
+		let fit = tableView.sizeThatFits(CGSize(width: viewportWidth, height: CGFloat.greatestFiniteMagnitude))
+		let content = contentSize(for: fit, viewportWidth: viewportWidth)
 		scrollView.frame = CGRect(x: 0, y: theme.tableTopSpacing,
 					  width: bounds.width,
 					  height: max(0, bounds.height - theme.tableTopSpacing - theme.tableBottomSpacing))
@@ -110,6 +116,9 @@ final class TableScrollWrapper: UIView {
 	}
 
 	private func resolvedWidth(_ width: CGFloat) -> CGFloat {
+		if let viewportWidthOverride, viewportWidthOverride > 0, viewportWidthOverride < CGFloat.greatestFiniteMagnitude {
+			return viewportWidthOverride
+		}
 		if width > 0, width < CGFloat.greatestFiniteMagnitude {
 			return width
 		}
