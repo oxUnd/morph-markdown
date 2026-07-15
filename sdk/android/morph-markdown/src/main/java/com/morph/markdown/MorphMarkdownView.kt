@@ -11,7 +11,7 @@ class MorphMarkdownView @JvmOverloads constructor(
 	context: Context,
 	attrs: AttributeSet? = null
 ) : ScrollView(context, attrs) {
-	private val engine = MorphMarkdownEngine()
+	private var engine = MorphMarkdownEngine()
 	private val body = LinearLayout(context).apply {
 		orientation = LinearLayout.VERTICAL
 	}
@@ -22,6 +22,7 @@ class MorphMarkdownView @JvmOverloads constructor(
 	}
 
 	var options = MorphMarkdownOptions()
+	var onRendered: (() -> Unit)? = null
 
 	var theme: MorphMarkdownTheme
 		get() = renderer.theme
@@ -88,7 +89,17 @@ class MorphMarkdownView @JvmOverloads constructor(
 		} else {
 			renderer.render(json, body)
 		}
+		onRendered?.invoke()
 		if (autoScroll) post { fullScroll(View.FOCUS_DOWN) }
+	}
+
+	fun reset() {
+		removeCallbacks(scheduledRender)
+		renderDebounce.cancel()
+		engine.close()
+		engine = MorphMarkdownEngine()
+		renderer.render("""{"children":[]}""", body)
+		onRendered?.invoke()
 	}
 
 	fun close() {
