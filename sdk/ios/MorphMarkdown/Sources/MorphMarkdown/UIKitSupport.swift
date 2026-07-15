@@ -84,9 +84,32 @@ final class InsetLabel: UILabel {
 	override func sizeThatFits(_ size: CGSize) -> CGSize {
 		let inner = CGSize(width: max(0, size.width - contentInsets.left - contentInsets.right),
 				   height: max(0, size.height - contentInsets.top - contentInsets.bottom))
-		let fitted = super.sizeThatFits(inner)
+		let fitted = multilineSizeThatFits(inner) ?? super.sizeThatFits(inner)
 		return CGSize(width: fitted.width + contentInsets.left + contentInsets.right,
 			      height: fitted.height + contentInsets.top + contentInsets.bottom)
+	}
+
+	private func multilineSizeThatFits(_ size: CGSize) -> CGSize? {
+		guard numberOfLines != 1, size.width > 0, size.width < CGFloat.greatestFiniteMagnitude else {
+			return nil
+		}
+		let text = measuredAttributedText()
+		let rect = text.boundingRect(with: size,
+					     options: [.usesLineFragmentOrigin, .usesFontLeading],
+					     context: nil)
+		return CGSize(width: ceil(rect.width), height: ceil(rect.height))
+	}
+
+	private func measuredAttributedText() -> NSAttributedString {
+		let mutable = NSMutableAttributedString(attributedString: attributedText ?? NSAttributedString(string: text ?? ""))
+		guard mutable.length > 0 else {
+			return mutable
+		}
+		let range = NSRange(location: 0, length: mutable.length)
+		let paragraph = NSMutableParagraphStyle()
+		paragraph.lineBreakMode = lineBreakMode
+		mutable.addAttributes([.font: font as Any, .paragraphStyle: paragraph], range: range)
+		return mutable
 	}
 }
 #endif

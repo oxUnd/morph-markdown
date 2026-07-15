@@ -38,7 +38,7 @@ extension MorphMarkdownRenderer {
 	func addInlineText(_ row: UIView, value: String, role: TableCellRole) {
 		let expanded = expandTabs(value, tabSize: theme.tabSize)
 		let spaced = processedText(expanded, theme: theme, allowCjkSpacing: true)
-		for fragment in InlineTextFragmenter.fragments(spaced) {
+		for fragment in inlineTextFragments(spaced, role: role) {
 			row.addSubview(cellText(fragment, role: role, expand: false, allowCjkSpacing: false))
 		}
 	}
@@ -73,6 +73,9 @@ extension MorphMarkdownRenderer {
 	}
 
 	func inlineCode(_ code: String, role: TableCellRole) -> UIView {
+		if role != .none, theme.tableCellWrap {
+			return wrappingInlineCode(code, role: role)
+		}
 		let label = cellText(expandTabs(code, tabSize: theme.tabSize), role: role, expand: false)
 		label.font = UIFont.monospacedSystemFont(ofSize: theme.inlineCodeTextSize, weight: .regular)
 		label.contentInsets = UIEdgeInsets(top: theme.inlineCodePaddingVertical,
@@ -83,10 +86,33 @@ extension MorphMarkdownRenderer {
 		return label
 	}
 
+	private func inlineTextFragments(_ text: String, role: TableCellRole) -> [String] {
+		if role != .none, theme.tableCellWrap {
+			return text.map { String($0) }
+		}
+		return InlineTextFragmenter.fragments(text)
+	}
+
+	private func wrappingInlineCode(_ code: String, role: TableCellRole) -> UIView {
+		let row = InlineLayoutView()
+		row.contentInsets = UIEdgeInsets(top: theme.inlineCodePaddingVertical,
+						 left: theme.inlineCodePaddingHorizontal,
+						 bottom: theme.inlineCodePaddingVertical,
+						 right: theme.inlineCodePaddingHorizontal)
+		row.backgroundColor = UIColor(argb: 0xffeeeeea)
+		for fragment in expandTabs(code, tabSize: theme.tabSize).map({ String($0) }) {
+			let label = cellText(fragment, role: role, expand: false, allowCjkSpacing: false)
+			label.font = UIFont.monospacedSystemFont(ofSize: theme.inlineCodeTextSize, weight: .regular)
+			row.addSubview(label)
+		}
+		return row
+	}
+
 	func cellText(_ value: String, role: TableCellRole, expand: Bool = true, allowCjkSpacing: Bool = true) -> InsetLabel {
 		let source = expand ? expandTabs(value, tabSize: theme.tabSize) : value
 		let label = InsetLabel()
-		label.numberOfLines = 1
+		label.numberOfLines = role != .none && theme.tableCellWrap ? 0 : 1
+		label.lineBreakMode = role != .none && theme.tableCellWrap ? .byCharWrapping : .byClipping
 		label.font = tableFont(role)
 		label.textColor = tableTextColor(role)
 		label.text = processedText(source, theme: theme, allowCjkSpacing: allowCjkSpacing)

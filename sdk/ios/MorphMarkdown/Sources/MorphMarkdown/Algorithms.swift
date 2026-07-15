@@ -131,12 +131,17 @@ enum TableColumnSizer {
 		let minSum = columns.map(\.minWidth).reduce(0, +)
 		let preferredSum = columns.map(\.preferredWidth).reduce(0, +)
 		if minSum >= availableWidth {
-			return columns.map(\.minWidth)
+			return fitBelowMinimum(columns: columns, availableWidth: availableWidth)
 		}
 		if preferredSum > availableWidth {
 			return shrink(columns, overflow: preferredSum - availableWidth)
 		}
 		return grow(columns, extra: availableWidth - preferredSum)
+	}
+
+	private static func fitBelowMinimum(columns: [TableColumnWidth], availableWidth: CGFloat) -> [CGFloat] {
+		let weights = columns.map { max($0.minWidth, 1) }
+		return distribute(availableWidth, weights: weights)
 	}
 
 	private static func shrink(_ columns: [TableColumnWidth], overflow: CGFloat) -> [CGFloat] {

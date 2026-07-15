@@ -10,7 +10,7 @@ extension MorphMarkdownRenderer {
 			return table
 		}
 		let scroll = UIScrollView()
-		scroll.alwaysBounceHorizontal = true
+		scroll.alwaysBounceHorizontal = false
 		scroll.showsHorizontalScrollIndicator = true
 		scroll.addSubview(table)
 		let wrapper = TableScrollWrapper(scrollView: scroll, tableView: table, theme: theme)
@@ -76,7 +76,7 @@ final class TableScrollWrapper: UIView {
 		let width = resolvedWidth(size.width)
 		tableView.viewportWidthHint = width
 		let tableSize = tableView.sizeThatFits(CGSize(width: width, height: size.height))
-		scrollView.contentSize = tableSize
+		scrollView.contentSize = contentSize(for: tableSize, viewportWidth: width)
 		return CGSize(width: width, height: tableSize.height + theme.tableTopSpacing + theme.tableBottomSpacing)
 	}
 
@@ -96,12 +96,16 @@ final class TableScrollWrapper: UIView {
 
 	override func layoutSubviews() {
 		super.layoutSubviews()
+		tableView.viewportWidthHint = bounds.width
 		let fit = tableView.sizeThatFits(CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude))
+		let content = contentSize(for: fit, viewportWidth: bounds.width)
 		scrollView.frame = CGRect(x: 0, y: theme.tableTopSpacing,
 					  width: bounds.width,
 					  height: max(0, bounds.height - theme.tableTopSpacing - theme.tableBottomSpacing))
-		tableView.frame = CGRect(origin: .zero, size: fit)
-		scrollView.contentSize = fit
+		tableView.frame = CGRect(origin: .zero, size: content)
+		scrollView.contentSize = content
+		scrollView.isScrollEnabled = !theme.tableCellWrap && content.width > bounds.width + 0.5
+		scrollView.showsHorizontalScrollIndicator = scrollView.isScrollEnabled
 	}
 
 	private func resolvedWidth(_ width: CGFloat) -> CGFloat {
@@ -113,6 +117,16 @@ final class TableScrollWrapper: UIView {
 		}
 		return tableView.sizeThatFits(CGSize(width: UIView.noIntrinsicMetric,
 						    height: CGFloat.greatestFiniteMagnitude)).width
+	}
+
+	private func contentSize(for tableSize: CGSize, viewportWidth: CGFloat) -> CGSize {
+		if viewportWidth <= 0 {
+			return tableSize
+		}
+		if theme.tableCellWrap {
+			return CGSize(width: viewportWidth, height: tableSize.height)
+		}
+		return CGSize(width: max(tableSize.width, viewportWidth), height: tableSize.height)
 	}
 }
 #endif

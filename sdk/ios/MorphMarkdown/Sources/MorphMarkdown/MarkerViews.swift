@@ -20,6 +20,14 @@ final class ListMarkerView: UIView {
 		return CGSize(width: theme.listMarkerWidth, height: theme.bodyTextSize * theme.bodyLineHeightMultiplier)
 	}
 
+	override var intrinsicContentSize: CGSize {
+		return sizeThatFits(.zero)
+	}
+
+	override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+		return sizeThatFits(targetSize)
+	}
+
 	override func draw(_ rect: CGRect) {
 		UIColor(argb: 0xff1b1b1b).setStroke()
 		UIColor(argb: 0xff1b1b1b).setFill()
@@ -82,6 +90,14 @@ final class TaskMarkerView: UIView {
 
 	override func sizeThatFits(_ size: CGSize) -> CGSize {
 		return CGSize(width: theme.taskBoxSize, height: theme.taskBoxSize)
+	}
+
+	override var intrinsicContentSize: CGSize {
+		return sizeThatFits(.zero)
+	}
+
+	override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+		return sizeThatFits(targetSize)
 	}
 
 	override func draw(_ rect: CGRect) {
