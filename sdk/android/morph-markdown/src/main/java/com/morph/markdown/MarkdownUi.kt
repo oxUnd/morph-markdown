@@ -88,8 +88,8 @@ private fun appendTab(out: StringBuilder, tabSize: Int, col: Int): Int {
 
 internal fun typefaceFor(context: Context, theme: MorphMarkdownTheme, bold: Boolean = false): Typeface {
 	val assetPath = if (bold) theme.boldFontAssetPath ?: theme.fontAssetPath else theme.fontAssetPath
-	if (assetPath != null) return TypefaceCache.asset(context, assetPath)
 	val style = if (bold) Typeface.BOLD else Typeface.NORMAL
+	if (assetPath != null) return TypefaceCache.assetOrFile(context, assetPath, style)
 	return when (theme.fontProfile) {
 		MorphFontProfile.HetiLikeHei -> TypefaceCache.systemFile("/system/fonts/NotoSansCJK-Regular.ttc", style)
 		MorphFontProfile.HetiLikeSong -> Typeface.create("serif", style)
@@ -100,9 +100,15 @@ internal fun typefaceFor(context: Context, theme: MorphMarkdownTheme, bold: Bool
 private object TypefaceCache {
 	private val cache = mutableMapOf<String, Typeface>()
 
-	fun asset(context: Context, path: String): Typeface {
-		return cache.getOrPut("asset:$path") {
-			Typeface.createFromAsset(context.assets, path)
+	fun assetOrFile(context: Context, path: String, style: Int): Typeface {
+		return cache.getOrPut("source:$path:$style") {
+			val file = File(path)
+			val source = if (file.isAbsolute && file.exists()) {
+				Typeface.createFromFile(file)
+			} else {
+				Typeface.createFromAsset(context.assets, path)
+			}
+			Typeface.create(source, style)
 		}
 	}
 

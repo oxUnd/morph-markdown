@@ -5,6 +5,7 @@ plugins {
 
 val repoDir = projectDir.resolve("../../..").normalize()
 val mathJaxFontsDir = repoDir.resolve(".third_party/mathjax-c/fonts")
+val androidVendorPrefix = projectDir.resolve(".build/vendor-android/arm64-v8a").normalize()
 check(mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf").isFile) {
 	"Missing MathJax font asset: ${mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf")}. " +
 		"Run scripts/prepare-third-party.sh from the repository root."
@@ -23,7 +24,10 @@ android {
 
 		externalNativeBuild {
 			cmake {
-				arguments += listOf("-DANDROID_STL=c++_static")
+				arguments += listOf(
+					"-DANDROID_STL=c++_static",
+					"-DMORPH_MATHJAX_ANDROID_PREFIX=${androidVendorPrefix.absolutePath}"
+				)
 			}
 		}
 	}

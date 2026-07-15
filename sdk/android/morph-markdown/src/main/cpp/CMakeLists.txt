@@ -62,6 +62,20 @@ set(ENV{PKG_CONFIG_SYSROOT_DIR} "")
 set(PKG_CONFIG_USE_STATIC_LIBS ON)
 pkg_check_modules(FREETYPE REQUIRED freetype2)
 pkg_check_modules(HARFBUZZ REQUIRED harfbuzz)
+set(FREETYPE_INCLUDE_DIRS
+	"${MORPH_MATHJAX_ANDROID_PREFIX}/include/freetype2")
+set(HARFBUZZ_INCLUDE_DIRS
+	"${MORPH_MATHJAX_ANDROID_PREFIX}/include/harfbuzz"
+	"${MORPH_MATHJAX_ANDROID_PREFIX}/include/freetype2")
+set(FREETYPE_STATIC_LDFLAGS
+	"-L${MORPH_MATHJAX_ANDROID_PREFIX}/lib"
+	"-lfreetype")
+set(HARFBUZZ_STATIC_LDFLAGS
+	"-L${MORPH_MATHJAX_ANDROID_PREFIX}/lib"
+	"-lharfbuzz"
+	"-pthread"
+	"-lm"
+	"-lfreetype")
 list(FILTER FREETYPE_STATIC_LDFLAGS EXCLUDE REGEX "^-lc\\+\\+$")
 list(FILTER HARFBUZZ_STATIC_LDFLAGS EXCLUDE REGEX "^-lc\\+\\+$")
 
