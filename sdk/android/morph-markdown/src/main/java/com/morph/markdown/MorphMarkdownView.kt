@@ -2,6 +2,9 @@ package com.morph.markdown
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -17,12 +20,26 @@ class MorphMarkdownView @JvmOverloads constructor(
 	}
 	private val renderer = MorphMarkdownRenderer(context)
 	private val renderDebounce = RenderDebounceState()
+	private var contentLongPressHandled = false
+	private val contentGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+		override fun onDown(e: MotionEvent): Boolean = true
+
+		override fun onLongPress(e: MotionEvent) {
+			val handled = onContentLongClick?.invoke(e.x, e.y) == true
+			if (handled) {
+				contentLongPressHandled = true
+				performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+				parent?.requestDisallowInterceptTouchEvent(true)
+			}
+		}
+	})
 	private val scheduledRender = Runnable {
 		performRenderSnapshot(renderDebounce.onScheduledRender(), reuseStablePrefix = true)
 	}
 
 	var options = MorphMarkdownOptions()
 	var onRendered: (() -> Unit)? = null
+	var onContentLongClick: ((x: Float, y: Float) -> Boolean)? = null
 
 	var theme: MorphMarkdownTheme
 		get() = renderer.theme
@@ -70,6 +87,22 @@ class MorphMarkdownView @JvmOverloads constructor(
 			is RenderDebounceDecision.Schedule -> postDelayed(scheduledRender, decision.delayMs)
 			is RenderDebounceDecision.RenderNow -> renderSnapshot(decision.autoScroll, reuseStablePrefix = true)
 		}
+	}
+
+	override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+		if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+			contentLongPressHandled = false
+		}
+		contentGestureDetector.onTouchEvent(ev)
+		if (contentLongPressHandled) {
+			if (ev.actionMasked == MotionEvent.ACTION_UP ||
+				ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+				contentLongPressHandled = false
+				parent?.requestDisallowInterceptTouchEvent(false)
+			}
+			return true
+		}
+		return super.dispatchTouchEvent(ev)
 	}
 
 	fun renderSnapshot(autoScroll: Boolean = false, reuseStablePrefix: Boolean = false) {
