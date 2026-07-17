@@ -34,7 +34,8 @@ private data class RenderedBlock(
 )
 
 private data class InlineSpanState(
-	var hasLink: Boolean = false
+	var hasLink: Boolean = false,
+	var hasEmergencyTextBreak: Boolean = false
 )
 
 private class MorphInlineLinkSpan(
@@ -305,6 +306,7 @@ class MorphMarkdownRenderer(
 		val out = SpannableStringBuilder()
 		val state = InlineSpanState()
 		if (!appendSpannableChildren(out, children, role, state, null)) return null
+		if (state.hasEmergencyTextBreak) return null
 		return spannedTextView(out, role, compact, state.hasLink)
 	}
 
@@ -367,6 +369,7 @@ class MorphMarkdownRenderer(
 		out.append(processedText(expanded, theme, allowCjkSpacing = !code))
 		val end = out.length
 		if (end <= start) return true
+		if (TextBreakRules.hasEmergencyBreak(expanded)) state.hasEmergencyTextBreak = true
 		if (code) applyInlineCodeSpans(out, start, end, role)
 		if (link != null) {
 			state.hasLink = true
@@ -648,6 +651,8 @@ class MorphMarkdownRenderer(
 		return text(expandTabs(code, theme.tabSize), theme.inlineCodeTextSizeSp).apply {
 			typeface = android.graphics.Typeface.MONOSPACE
 			applyTableTextStyle(role)
+			setSingleLine(true)
+			setHorizontallyScrolling(true)
 			if (role != TableCellRole.None && theme.tableCellWrap) {
 				maxWidth = context.dp((theme.tableCellMaxWidthDp * 0.78f).toInt())
 			}

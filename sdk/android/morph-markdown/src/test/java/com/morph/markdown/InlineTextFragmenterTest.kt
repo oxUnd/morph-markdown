@@ -24,4 +24,30 @@ class InlineTextFragmenterTest {
 
 		assertEquals(listOf("Android", "/", "iOS", "。"), fragments)
 	}
+
+	@Test
+	fun breaksVeryLongDigitRunsIntoEmergencyFragments() {
+		val value = "1".repeat(80)
+		val fragments = InlineTextFragmenter.fragments(value)
+
+		assertEquals(80, fragments.size)
+		assertEquals(listOf("1", "1", "1"), fragments.take(3))
+	}
+
+	@Test
+	fun keepsModerateAsciiTokensTogether() {
+		val fragments = InlineTextFragmenter.fragments("abcdefghij0123456789")
+
+		assertEquals(listOf("abcdefghij0123456789"), fragments)
+	}
+
+	@Test
+	fun breaksVeryLongAsciiRunsIntoEmergencyFragments() {
+		val value = "abcdefghijklmnopqrstuvwxyz0123456789"
+		val fragments = InlineTextFragmenter.fragments(value)
+
+		assertEquals(value.length, fragments.size)
+		assertEquals("a", fragments.first())
+		assertEquals("9", fragments.last())
+	}
 }
