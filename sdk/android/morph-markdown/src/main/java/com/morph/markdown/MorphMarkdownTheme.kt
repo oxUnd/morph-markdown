@@ -32,6 +32,7 @@ data class MorphTableStyle(
 
 data class MorphMarkdownTheme(
 	val bodyTextSizeSp: Float = 16f,
+	val bodyTextColor: Int = 0xff1b1b1b.toInt(),
 	val headingSizesSp: List<Float> = listOf(26f, 23f, 20f, 18f, 16f, 16f),
 	val headingLineHeightsSp: List<Float> = listOf(34f, 30f, 27f, 25f, 24f, 24f),
 	val headingTopSpacingDp: Int = 8,

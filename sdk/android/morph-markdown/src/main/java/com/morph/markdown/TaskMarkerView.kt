@@ -11,12 +11,12 @@ class TaskMarkerView(
 	private val theme: MorphMarkdownTheme
 ) : View(context) {
 	private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-		color = 0xffd4d4d0.toInt()
+		color = theme.bodyTextColor
 		style = Paint.Style.STROKE
 		strokeWidth = context.resources.displayMetrics.density * 2f
 	}
 	private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-		color = 0xffd4d4d0.toInt()
+		color = theme.bodyTextColor
 		style = Paint.Style.FILL
 	}
 	private val checkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

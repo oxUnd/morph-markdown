@@ -146,7 +146,7 @@ class MorphMarkdownView @JvmOverloads constructor(
 		body.addView(android.widget.TextView(context).apply {
 			text = "snapshot failed"
 			textSize = theme.bodyTextSizeSp
-			setTextColor(0xff1b1b1b.toInt())
+			setTextColor(theme.bodyTextColor)
 		})
 	}
 }

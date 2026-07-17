@@ -11,7 +11,7 @@ class ListMarkerView(
 	private val theme: MorphMarkdownTheme
 ) : View(context) {
 	private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-		color = 0xff1b1b1b.toInt()
+		color = theme.bodyTextColor
 		strokeWidth = context.resources.displayMetrics.density * 1.5f
 	}
 

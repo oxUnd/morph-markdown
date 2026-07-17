@@ -398,7 +398,7 @@ class MorphMarkdownRenderer(
 		return TextView(context).apply {
 			text = value
 			textSize = tableTextSize(role)
-			setTextColor(if (role == TableCellRole.None) 0xff1b1b1b.toInt() else tableTextColor(role))
+			setTextColor(if (role == TableCellRole.None) theme.bodyTextColor else tableTextColor(role))
 			typeface = typefaceFor(context, theme, bold = role == TableCellRole.Header && theme.tableStyle.headerBold)
 			applySpannedTextMetrics(role)
 			applySpannedPadding(role, compact)
@@ -755,7 +755,7 @@ class MorphMarkdownRenderer(
 		return TextView(context).apply {
 			text = processedText(value, theme, allowCjkSpacing)
 			textSize = sizeSp
-			setTextColor(0xff1b1b1b.toInt())
+			setTextColor(theme.bodyTextColor)
 			typeface = typefaceFor(context, theme)
 			applyMorphTextMetrics(sizeSp, theme.bodyLineHeightMultiplier)
 		}
