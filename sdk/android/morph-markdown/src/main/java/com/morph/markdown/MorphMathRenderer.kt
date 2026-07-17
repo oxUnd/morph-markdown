@@ -56,8 +56,9 @@ class MathJaxMathRenderer(context: Context) : MorphMathRenderer {
 
 	private fun copyFont(context: Context): File {
 		val out = File(context.filesDir, "STIXTwoMath-Regular.ttf")
-		if (!out.exists()) {
-			context.assets.open("STIXTwoMath-Regular.ttf").use { input ->
+		context.assets.open("STIXTwoMath-Regular.ttf").use { input ->
+			val assetLength = input.available().toLong()
+			if (!out.exists() || out.length() != assetLength) {
 				out.outputStream().use { output -> input.copyTo(output) }
 			}
 		}

@@ -2,7 +2,7 @@
 set -eu
 
 DEFAULT_MATHJAX_GIT_URL="https://github.com/oxUnd/mathjax-c.git"
-DEFAULT_MATHJAX_GIT_REF="2027269a10f754fea875dc9411cf0d9303df01bb"
+DEFAULT_MATHJAX_GIT_REF="ea692adccc0eb56ac53261c5880d93094d22e43e"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)

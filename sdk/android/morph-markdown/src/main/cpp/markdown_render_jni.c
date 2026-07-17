@@ -196,17 +196,26 @@ Java_com_morph_markdown_MarkdownNative_renderLatex(
 	opts.dpi = 72u;
 
 	ctx = mjx_init(&opts);
-	if (!ctx)
+	if (!ctx) {
+		LOGE("mathjax init failed: font=%s size=%.2f", font, opts.font_size);
 		goto out;
+	}
 	buf = mjx_render_latex(ctx, expr,
 			       display ? MJX_STYLE_DISPLAY : MJX_STYLE_INLINE);
-	if (!buf)
+	if (!buf) {
+		mjx_error err = mjx_last_error(ctx);
+		LOGE("mathjax render failed: %s expr=%s",
+		     mjx_error_string(err), expr);
 		goto out;
+	}
 
 	width = mjx_buf_width(buf);
 	height = mjx_buf_height(buf);
-	if (width == 0u || height == 0u)
+	if (width == 0u || height == 0u) {
+		LOGE("mathjax render produced empty bitmap: width=%u height=%u expr=%s",
+		     width, height, expr);
 		goto out;
+	}
 	count = (size_t)width * (size_t)height;
 	if (count > ((size_t)INT32_MAX - 2u))
 		goto out;
