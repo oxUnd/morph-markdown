@@ -8,9 +8,11 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.HorizontalScrollView
@@ -41,6 +43,7 @@ class MainActivity : Activity() {
 	private var tableWrap = true
 	private var compactCode = false
 	private var assetFont = true
+	private var darkMode = false
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -63,7 +66,6 @@ class MainActivity : Activity() {
 	private fun createRoot() {
 		root = LinearLayout(this).apply {
 			orientation = LinearLayout.VERTICAL
-			setBackgroundColor(0xfffafaf7.toInt())
 		}
 		controls = LinearLayout(this).apply {
 			orientation = LinearLayout.HORIZONTAL
@@ -73,7 +75,6 @@ class MainActivity : Activity() {
 			addView(controls, ViewGroup.LayoutParams(-2, -2))
 		}
 		markdownView = MorphMarkdownView(this).apply {
-			setBackgroundColor(0xfffafaf7.toInt())
 			setPadding(0, 0, 0, insetBottom)
 			mathRenderer = MathJaxMathRenderer(this@MainActivity)
 			imageLoader = FileImageLoader()
@@ -81,6 +82,7 @@ class MainActivity : Activity() {
 				Toast.makeText(this@MainActivity, url, Toast.LENGTH_SHORT).show()
 			}
 		}
+		applyDemoPalette(currentPalette())
 		root.addView(controlsHost, LinearLayout.LayoutParams(-1, -2))
 		root.addView(markdownView, LinearLayout.LayoutParams(-1, 0, 1f))
 		ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
@@ -107,6 +109,10 @@ class MainActivity : Activity() {
 
 	private fun rebuildControls() {
 		controls.removeAllViews()
+		controls.addView(control(if (darkMode) "Mode dark" else "Mode light") {
+			darkMode = !darkMode
+			applyTheme()
+		})
 		controls.addView(control("H ${headingLabel()}") {
 			headingMode = (headingMode + 1) % 5
 			applyTheme()
@@ -131,6 +137,7 @@ class MainActivity : Activity() {
 
 	private fun applyTheme() {
 		rebuildControls()
+		applyDemoPalette(currentPalette())
 		markdownView.theme = currentTheme()
 	}
 
@@ -146,6 +153,7 @@ class MainActivity : Activity() {
 		theme = theme.copy(tabSize = tabs, codeBlockTabSize = tabs)
 		if (!tableWrap) theme = theme.copy(tableCellWrap = false)
 		if (compactCode) theme = theme.copy(codeBlockTextSizeSp = 13f, inlineCodeTextSizeSp = 14f)
+		if (darkMode) theme = MorphMarkdownThemes.darkOf(theme)
 		return theme
 	}
 
@@ -158,16 +166,63 @@ class MainActivity : Activity() {
 	}
 
 	private fun control(label: String, action: () -> Unit): TextView {
+		val palette = currentPalette()
 		return TextView(this).apply {
 			text = label
 			textSize = 13f
-			setTextColor(0xff202020.toInt())
+			setTextColor(palette.controlTextColor)
 			setPadding(dp(10), dp(7), dp(10), dp(7))
-			background = border()
+			background = border(palette)
 			setOnClickListener { action() }
 			layoutParams = LinearLayout.LayoutParams(-2, -2).apply {
 				setMargins(0, 0, dp(8), 0)
 			}
+		}
+	}
+
+	private fun applyDemoPalette(palette: DemoPalette) {
+		root.setBackgroundColor(palette.backgroundColor)
+		controlsHost.setBackgroundColor(palette.backgroundColor)
+		markdownView.setBackgroundColor(palette.backgroundColor)
+		window.statusBarColor = palette.systemBarColor
+		window.navigationBarColor = palette.systemBarColor
+		applySystemBarIcons(palette.lightSystemBars)
+	}
+
+	private fun applySystemBarIcons(lightSystemBars: Boolean) {
+		var flags = window.decorView.systemUiVisibility
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+			flags = setFlag(flags, View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR, lightSystemBars)
+		}
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+			flags = setFlag(flags, View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR, lightSystemBars)
+		}
+		window.decorView.systemUiVisibility = flags
+	}
+
+	private fun setFlag(flags: Int, flag: Int, enabled: Boolean): Int {
+		return if (enabled) flags or flag else flags and flag.inv()
+	}
+
+	private fun currentPalette(): DemoPalette {
+		return if (darkMode) {
+			DemoPalette(
+				backgroundColor = 0xff151713.toInt(),
+				controlFillColor = 0xff252824.toInt(),
+				controlTextColor = 0xffe7e4dc.toInt(),
+				controlBorderColor = 0xff74786d.toInt(),
+				systemBarColor = 0xff151713.toInt(),
+				lightSystemBars = false
+			)
+		} else {
+			DemoPalette(
+				backgroundColor = 0xfffafaf7.toInt(),
+				controlFillColor = 0x00ffffff,
+				controlTextColor = 0xff202020.toInt(),
+				controlBorderColor = 0xff454545.toInt(),
+				systemBarColor = 0xfffafaf7.toInt(),
+				lightSystemBars = true
+			)
 		}
 	}
 
@@ -227,10 +282,10 @@ class MainActivity : Activity() {
 		}
 	}
 
-	private fun border(): GradientDrawable {
+	private fun border(palette: DemoPalette): GradientDrawable {
 		return GradientDrawable().apply {
-			setColor(0x00ffffff)
-			setStroke(dp(1), 0xff454545.toInt())
+			setColor(palette.controlFillColor)
+			setStroke(dp(1), palette.controlBorderColor)
 		}
 	}
 
@@ -238,3 +293,12 @@ class MainActivity : Activity() {
 		return (value * resources.displayMetrics.density + 0.5f).toInt()
 	}
 }
+
+private data class DemoPalette(
+	val backgroundColor: Int,
+	val controlFillColor: Int,
+	val controlTextColor: Int,
+	val controlBorderColor: Int,
+	val systemBarColor: Int,
+	val lightSystemBars: Boolean
+)

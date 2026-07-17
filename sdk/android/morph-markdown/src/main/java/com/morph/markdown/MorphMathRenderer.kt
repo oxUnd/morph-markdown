@@ -22,7 +22,7 @@ class MathJaxMathRenderer(context: Context) : MorphMathRenderer {
 		theme: MorphMarkdownTheme
 	): View? {
 		val fontSizePx = context.sp(theme.mathSize())
-		val data = MarkdownNative.renderLatex(fontFile.absolutePath, latex, display, fontSizePx)
+		val data = MarkdownNative.renderLatex(fontFile.absolutePath, latex, display, fontSizePx, theme.bodyTextColor)
 		if (data == null || data.size < 3) return null
 		val bitmap = bitmapFromData(data)
 		val image = fixedBitmapView(context, bitmap)

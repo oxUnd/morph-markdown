@@ -33,6 +33,13 @@ data class MorphTableStyle(
 data class MorphMarkdownTheme(
 	val bodyTextSizeSp: Float = 16f,
 	val bodyTextColor: Int = 0xff1b1b1b.toInt(),
+	val codeBlockBackgroundColor: Int = 0xffeeeeea.toInt(),
+	val inlineCodeBackgroundColor: Int = 0xffeeeeea.toInt(),
+	val blockquoteBarColor: Int = 0xff767676.toInt(),
+	val horizontalRuleColor: Int = 0xffb7b7b0.toInt(),
+	val imageErrorBackgroundColor: Int = 0x00ffffff,
+	val imageErrorBorderColor: Int = 0xff454545.toInt(),
+	val taskCheckColor: Int = 0xffffffff.toInt(),
 	val headingSizesSp: List<Float> = listOf(26f, 23f, 20f, 18f, 16f, 16f),
 	val headingLineHeightsSp: List<Float> = listOf(34f, 30f, 27f, 25f, 24f, 24f),
 	val headingTopSpacingDp: Int = 8,
@@ -152,6 +159,27 @@ object MorphMarkdownThemes {
 			fontAssetPath = fontAssetPath,
 			boldFontAssetPath = boldFontAssetPath,
 			fontProfile = MorphFontProfile.HetiLikeSong
+		)
+	}
+
+	fun darkOf(theme: MorphMarkdownTheme): MorphMarkdownTheme {
+		return theme.copy(
+			bodyTextColor = 0xffe7e4dc.toInt(),
+			codeBlockBackgroundColor = 0xff252824.toInt(),
+			inlineCodeBackgroundColor = 0xff303229.toInt(),
+			blockquoteBarColor = 0xff74786d.toInt(),
+			horizontalRuleColor = 0xff484c43.toInt(),
+			imageErrorBackgroundColor = 0xff252824.toInt(),
+			imageErrorBorderColor = 0xff676b60.toInt(),
+			taskCheckColor = 0xff11130f.toInt(),
+			linkTextColor = 0xff7bc7cf.toInt(),
+			tableStyle = theme.tableStyle.copy(
+				borderColor = 0xff676b60.toInt(),
+				headerBackgroundColor = 0xff2f332c.toInt(),
+				bodyBackgroundColor = 0xff1d201b.toInt(),
+				headerTextColor = 0xfff1efe7.toInt(),
+				bodyTextColor = 0xffe7e4dc.toInt()
+			)
 		)
 	}
 }

@@ -49,10 +49,10 @@ internal fun fill(color: Int): GradientDrawable {
 	}
 }
 
-internal fun Context.border(header: Boolean): GradientDrawable {
+internal fun Context.border(backgroundColor: Int, borderColor: Int): GradientDrawable {
 	return GradientDrawable().apply {
-		setColor(if (header) 0xffefefea.toInt() else 0x00ffffff)
-		setStroke(dp(1), 0xff454545.toInt())
+		setColor(backgroundColor)
+		setStroke(dp(1), borderColor)
 	}
 }
 

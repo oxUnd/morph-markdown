@@ -19,6 +19,7 @@ internal object MarkdownNative {
 		fontPath: String,
 		latex: String,
 		display: Boolean,
-		fontSizePx: Float
+		fontSizePx: Float,
+		textColor: Int
 	): IntArray?
 }

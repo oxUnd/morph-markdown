@@ -20,7 +20,7 @@ class TaskMarkerView(
 		style = Paint.Style.FILL
 	}
 	private val checkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-		color = 0xffffffff.toInt()
+		color = theme.taskCheckColor
 		style = Paint.Style.STROKE
 		strokeCap = Paint.Cap.ROUND
 		strokeJoin = Paint.Join.ROUND

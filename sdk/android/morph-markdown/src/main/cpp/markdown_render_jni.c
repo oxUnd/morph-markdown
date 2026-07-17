@@ -24,6 +24,20 @@ static uint32_t rgba_to_argb(uint32_t rgba)
 	return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
+static uint32_t argb_to_rgba(uint32_t argb)
+{
+	uint32_t a;
+	uint32_t r;
+	uint32_t g;
+	uint32_t b;
+
+	a = (argb >> 24) & 0xffu;
+	r = (argb >> 16) & 0xffu;
+	g = (argb >> 8) & 0xffu;
+	b = argb & 0xffu;
+	return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
 static void release_string(JNIEnv *env, jstring jstr, const char *str)
 {
 	if (jstr && str)
@@ -149,7 +163,8 @@ Java_com_morph_markdown_MarkdownNative_renderLatex(
 	jstring font_path,
 	jstring latex,
 	jboolean display,
-	jfloat font_size_px)
+	jfloat font_size_px,
+	jint text_color)
 {
 	const char *font = NULL;
 	const char *expr = NULL;
@@ -176,7 +191,7 @@ Java_com_morph_markdown_MarkdownNative_renderLatex(
 	memset(&opts, 0, sizeof(opts));
 	opts.font_path = font;
 	opts.font_size = font_size_px > 0.0f ? (double)font_size_px : 18.0;
-	opts.fg_color = 0x1b1b1bffu;
+	opts.fg_color = argb_to_rgba((uint32_t)text_color);
 	opts.bg_color = 0x00000000u;
 	opts.dpi = 72u;
 

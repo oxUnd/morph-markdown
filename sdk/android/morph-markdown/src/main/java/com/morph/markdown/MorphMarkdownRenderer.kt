@@ -382,7 +382,7 @@ class MorphMarkdownRenderer(
 
 	private fun applyInlineCodeSpans(out: SpannableStringBuilder, start: Int, end: Int, role: TableCellRole) {
 		out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-		out.setSpan(BackgroundColorSpan(0xffeeeeea.toInt()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+		out.setSpan(BackgroundColorSpan(theme.inlineCodeBackgroundColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
 		val ratio = theme.inlineCodeTextSizeSp / tableTextSize(role)
 		if (kotlin.math.abs(ratio - 1f) > 0.01f) {
 			out.setSpan(RelativeSizeSpan(ratio), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -562,7 +562,7 @@ class MorphMarkdownRenderer(
 			)
 		}
 		box.addView(View(context).apply {
-			background = fill(0xff767676.toInt())
+			background = fill(theme.blockquoteBarColor)
 			layoutParams = LinearLayout.LayoutParams(context.dp(4), ViewGroup.LayoutParams.MATCH_PARENT)
 		})
 		box.addView(text(expandTabs(plainText(node).trim(), theme.tabSize), theme.bodyTextSizeSp, true).apply {
@@ -622,6 +622,7 @@ class MorphMarkdownRenderer(
 		role: TableCellRole = TableCellRole.None
 	): View {
 		val renderTheme = if (role == TableCellRole.None) theme else theme.copy(
+			bodyTextColor = tableTextColor(role),
 			mathTextScale = theme.tableMathTextScale
 		)
 		val rendered = mathRenderer?.render(context, latex, display, renderTheme)
@@ -639,7 +640,7 @@ class MorphMarkdownRenderer(
 				context.dp(theme.codeBlockPaddingHorizontalDp),
 				context.dp(theme.codeBlockPaddingVerticalDp)
 			)
-			background = context.border(false)
+			background = context.border(theme.imageErrorBackgroundColor, theme.imageErrorBorderColor)
 		}
 	}
 
@@ -656,7 +657,7 @@ class MorphMarkdownRenderer(
 				context.dp(theme.inlineCodePaddingHorizontalDp),
 				context.dp(theme.inlineCodePaddingVerticalDp)
 			)
-			background = fill(0xffeeeeea.toInt())
+			background = fill(theme.inlineCodeBackgroundColor)
 		}
 	}
 
@@ -719,7 +720,7 @@ class MorphMarkdownRenderer(
 				context.dp(theme.codeBlockPaddingHorizontalDp),
 				context.dp(theme.codeBlockPaddingVerticalDp)
 			)
-			background = fill(0xffeeeeea.toInt())
+			background = fill(theme.codeBlockBackgroundColor)
 		}
 	}
 
@@ -773,7 +774,7 @@ class MorphMarkdownRenderer(
 
 	private fun rule(): View {
 		return View(context).apply {
-			background = fill(0xffb7b7b0.toInt())
+			background = fill(theme.horizontalRuleColor)
 			layoutParams = LinearLayout.LayoutParams(
 				ViewGroup.LayoutParams.MATCH_PARENT,
 				context.dp(1)
