@@ -29,8 +29,8 @@ final class ListMarkerView: UIView {
 	}
 
 	override func draw(_ rect: CGRect) {
-		UIColor(argb: 0xff1b1b1b).setStroke()
-		UIColor(argb: 0xff1b1b1b).setFill()
+		UIColor(argb: theme.bodyTextColor).setStroke()
+		UIColor(argb: theme.bodyTextColor).setFill()
 		switch style {
 		case .disc:
 			drawDisc()

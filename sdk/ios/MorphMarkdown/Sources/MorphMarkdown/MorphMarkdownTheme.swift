@@ -55,6 +55,7 @@ public struct MorphTableStyle: Equatable {
 
 public struct MorphMarkdownTheme: Equatable {
 	public var bodyTextSize: CGFloat = 16
+	public var bodyTextColor: UInt32 = 0xff1b1b1b
 	public var headingSizes: [CGFloat] = [26, 23, 20, 18, 16, 16]
 	public var headingLineHeights: [CGFloat] = [34, 30, 27, 25, 24, 24]
 	public var headingTopSpacing: CGFloat = 8

@@ -111,7 +111,7 @@ extension MorphMarkdownRenderer {
 		label.lineBreakMode = .byCharWrapping
 		label.font = UIFont.monospacedSystemFont(ofSize: theme.inlineCodeTextSize, weight: .regular)
 		label.text = "invalid image: \(url)"
-		label.textColor = UIColor(argb: 0xff1b1b1b)
+		label.textColor = UIColor(argb: theme.bodyTextColor)
 		label.contentInsets = UIEdgeInsets(top: theme.codeBlockPaddingVertical,
 						   left: theme.codeBlockPaddingHorizontal,
 						   bottom: theme.codeBlockPaddingVertical,
@@ -207,7 +207,7 @@ extension MorphMarkdownRenderer {
 		case .body:
 			return UIColor(argb: theme.tableStyle.bodyTextColor)
 		case .none:
-			return UIColor(argb: 0xff1b1b1b)
+			return UIColor(argb: theme.bodyTextColor)
 		}
 	}
 

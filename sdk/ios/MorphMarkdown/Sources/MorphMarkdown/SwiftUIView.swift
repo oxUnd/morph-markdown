@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct MorphMarkdownView: UIViewRepresentable {
 	private let chunks: [String]
+	private let isStreaming: Bool
 	private let theme: MorphMarkdownTheme
 	private let mathRenderer: MorphMathRenderer?
 	private let imageLoader: MorphImageLoader
@@ -11,6 +12,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 
 	public init(
 		markdown: String,
+		isStreaming: Bool = false,
 		theme: MorphMarkdownTheme = MorphMarkdownThemes.normal,
 		mathRenderer: MorphMathRenderer? = MathJaxMathRenderer(),
 		imageLoader: MorphImageLoader = FileImageLoader(),
@@ -18,6 +20,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		onLinkClick: MorphMarkdownLinkHandler? = nil
 	) {
 		chunks = [markdown]
+		self.isStreaming = isStreaming
 		self.theme = theme
 		self.mathRenderer = mathRenderer
 		self.imageLoader = imageLoader
@@ -36,9 +39,25 @@ public struct MorphMarkdownView: UIViewRepresentable {
 	}
 
 	public func updateUIView(_ uiView: MorphMarkdownUIView, context: Context) {
-		uiView.viewportWidthOverride = viewportWidth
-		uiView.onLinkClick = onLinkClick
-		context.coordinator.render(chunks: chunks, into: uiView)
+		if uiView.theme != theme {
+			uiView.theme = theme
+		}
+		if let viewportWidth {
+			uiView.viewportWidthOverride = viewportWidth
+		}
+		context.coordinator.render(chunks: chunks, isStreaming: isStreaming, into: uiView)
+	}
+
+	@available(iOS 16.0, *)
+	public func sizeThatFits(
+		_ proposal: ProposedViewSize,
+		uiView: MorphMarkdownUIView,
+		context: Context
+	) -> CGSize? {
+		guard let width = proposal.width, width > 0 else {
+			return nil
+		}
+		return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
 	}
 
 	public func makeCoordinator() -> Coordinator {
@@ -47,14 +66,21 @@ public struct MorphMarkdownView: UIViewRepresentable {
 
 	public final class Coordinator {
 		private var lastMarkdown: String?
+		private var lastWasStreaming = false
 
-		func render(chunks: [String], into view: MorphMarkdownUIView) {
+		func render(chunks: [String], isStreaming: Bool, into view: MorphMarkdownUIView) {
 			let markdown = chunks.joined()
-			if markdown == lastMarkdown {
+			if markdown == lastMarkdown, isStreaming == lastWasStreaming {
 				return
 			}
-			view.setMarkdown(markdown)
+			if let lastMarkdown, markdown.hasPrefix(lastMarkdown) {
+				let delta = String(markdown.dropFirst(lastMarkdown.count))
+				view.append(delta, final: !isStreaming)
+			} else {
+				view.setMarkdown(markdown, final: !isStreaming)
+			}
 			lastMarkdown = markdown
+			lastWasStreaming = isStreaming
 		}
 	}
 }

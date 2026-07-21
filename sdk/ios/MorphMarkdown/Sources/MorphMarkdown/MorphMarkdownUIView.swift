@@ -78,15 +78,30 @@ public final class MorphMarkdownUIView: UIScrollView {
 		renderSnapshot(autoScroll: options.autoScrollOnAppend)
 	}
 
-	public func setMarkdown(_ markdown: String) {
+	public func setMarkdown(_ markdown: String, final: Bool = true) {
 		engine.close()
 		guard let next = MorphMarkdownEngine() else {
 			renderError()
 			return
 		}
 		engine = next
-		_ = engine.append(markdown, final: true)
+		_ = engine.append(markdown, final: final)
 		renderSnapshot(autoScroll: false)
+	}
+
+	public override func sizeThatFits(_ size: CGSize) -> CGSize {
+		let width = Self.validViewportWidth(size.width) ?? bounds.width
+		guard width > 0 else {
+			return super.sizeThatFits(size)
+		}
+		viewportWidthOverride = width
+		let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+		let fit = body.systemLayoutSizeFitting(
+			target,
+			withHorizontalFittingPriority: .required,
+			verticalFittingPriority: .fittingSizeLevel
+		)
+		return CGSize(width: width, height: ceil(max(1, fit.height)))
 	}
 
 	public func reset() {
@@ -117,7 +132,8 @@ public final class MorphMarkdownUIView: UIScrollView {
 	}
 
 	private func configure() {
-		alwaysBounceVertical = true
+		alwaysBounceVertical = false
+		isScrollEnabled = false
 		addSubview(body)
 		body.axis = .vertical
 		body.alignment = .fill

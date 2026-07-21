@@ -32,7 +32,7 @@ extension MorphMarkdownRenderer {
 		let label = InsetLabel()
 		label.numberOfLines = 0
 		label.font = UIFont.monospacedSystemFont(ofSize: theme.codeBlockTextSize, weight: .regular)
-		label.textColor = UIColor(argb: 0xff1b1b1b)
+		label.textColor = UIColor(argb: theme.bodyTextColor)
 		label.text = expandTabs(code, tabSize: theme.codeBlockTabSize)
 		label.contentInsets = UIEdgeInsets(top: theme.codeBlockPaddingVertical,
 						   left: theme.codeBlockPaddingHorizontal,

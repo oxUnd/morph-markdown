@@ -52,7 +52,7 @@ func configuredLabel(
 ) -> UILabel {
 	let label = UILabel()
 	label.numberOfLines = 0
-	label.textColor = UIColor(argb: 0xff1b1b1b)
+	label.textColor = UIColor(argb: theme.bodyTextColor)
 	label.font = monospace ? UIFont.monospacedSystemFont(ofSize: size, weight: .regular) : morphFont(theme: theme, size: size, bold: bold)
 	label.attributedText = attributedText(processedText(text, theme: theme, allowCjkSpacing: allowCjkSpacing), label: label, theme: theme)
 	return label
