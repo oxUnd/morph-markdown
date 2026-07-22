@@ -32,6 +32,13 @@ public final class MorphMarkdownEngine {
 		return String(cString: pointer)
 	}
 
+	public func stableBlockCount() -> Int {
+		guard let handle else {
+			return 0
+		}
+		return Int(morph_ios_engine_stable_block_count(handle))
+	}
+
 	public func close() {
 		if let handle {
 			morph_ios_engine_destroy(handle)
@@ -42,8 +49,10 @@ public final class MorphMarkdownEngine {
 
 public struct MorphMarkdownOptions: Equatable {
 	public var autoScrollOnAppend: Bool
+	public var appendRenderDebounceMilliseconds: Int
 
-	public init(autoScrollOnAppend: Bool = true) {
+	public init(autoScrollOnAppend: Bool = true, appendRenderDebounceMilliseconds: Int = 160) {
 		self.autoScrollOnAppend = autoScrollOnAppend
+		self.appendRenderDebounceMilliseconds = appendRenderDebounceMilliseconds
 	}
 }

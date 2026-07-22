@@ -5,6 +5,8 @@ public final class MorphMarkdownUIView: UIScrollView {
 	private var engine: MorphMarkdownEngine
 	private let body = UIStackView()
 	private let renderer = MorphMarkdownRenderer()
+	private let renderDebounce = RenderDebounceState()
+	private var scheduledRender: DispatchWorkItem?
 
 	public var options = MorphMarkdownOptions()
 	public var viewportWidthOverride: CGFloat? {
@@ -75,7 +77,27 @@ public final class MorphMarkdownUIView: UIScrollView {
 
 	public func append(_ markdown: String, final: Bool = false) {
 		_ = engine.append(markdown, final: final)
-		renderSnapshot(autoScroll: options.autoScrollOnAppend)
+		switch renderDebounce.onAppend(
+			final: final,
+			autoScroll: options.autoScrollOnAppend,
+			debounceMilliseconds: options.appendRenderDebounceMilliseconds
+		) {
+		case .none:
+			break
+		case .renderNow(let autoScroll):
+			renderSnapshot(autoScroll: autoScroll, reuseStablePrefix: true)
+		case .schedule(let delay):
+			let work = DispatchWorkItem { [weak self] in
+				guard let self else { return }
+				self.scheduledRender = nil
+				self.performRenderSnapshot(
+					autoScroll: self.renderDebounce.onScheduledRender(),
+					reuseStablePrefix: true
+				)
+			}
+			scheduledRender = work
+			DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: work)
+		}
 	}
 
 	public func setMarkdown(_ markdown: String, final: Bool = true) {
@@ -111,15 +133,28 @@ public final class MorphMarkdownUIView: UIScrollView {
 			return
 		}
 		engine = next
-		body.removeAllArrangedSubviews()
+		renderer.reset(parent: body)
 	}
 
-	public func renderSnapshot(autoScroll: Bool = false) {
+	public func renderSnapshot(autoScroll: Bool = false, reuseStablePrefix: Bool = false) {
+		cancelScheduledRender()
+		performRenderSnapshot(autoScroll: autoScroll, reuseStablePrefix: reuseStablePrefix)
+	}
+
+	private func performRenderSnapshot(autoScroll: Bool, reuseStablePrefix: Bool) {
 		guard let json = engine.snapshotJson() else {
 			renderError()
 			return
 		}
-		renderer.render(json: json, parent: body)
+		if reuseStablePrefix {
+			renderer.renderReusingStablePrefix(
+				json: json,
+				parent: body,
+				stableBlockCount: engine.stableBlockCount()
+			)
+		} else {
+			renderer.render(json: json, parent: body)
+		}
 		body.setNeedsLayout()
 		layoutIfNeeded()
 		if autoScroll {
@@ -128,7 +163,14 @@ public final class MorphMarkdownUIView: UIScrollView {
 	}
 
 	public func close() {
+		cancelScheduledRender()
 		engine.close()
+	}
+
+	private func cancelScheduledRender() {
+		scheduledRender?.cancel()
+		scheduledRender = nil
+		renderDebounce.cancel()
 	}
 
 	private func configure() {
@@ -149,7 +191,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 	}
 
 	private func renderError() {
-		body.removeAllArrangedSubviews()
+		renderer.reset(parent: body)
 		body.addArrangedSubview(configuredLabel("snapshot failed", size: theme.bodyTextSize, theme: theme))
 	}
 

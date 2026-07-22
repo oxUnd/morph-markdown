@@ -54,6 +54,17 @@ char *morph_ios_engine_snapshot_json(morph_ios_engine *engine)
 	return json;
 }
 
+int morph_ios_engine_stable_block_count(morph_ios_engine *engine)
+{
+	size_t count = 0u;
+
+	if (!engine || !engine->engine)
+		return 0;
+	if (morph_md_engine_stable_block_count(engine->engine, &count) != 0)
+		return 0;
+	return count > (size_t)INT32_MAX ? INT32_MAX : (int)count;
+}
+
 void morph_ios_engine_destroy(morph_ios_engine *engine)
 {
 	if (!engine)

@@ -2,6 +2,13 @@ import XCTest
 @testable import MorphMarkdown
 
 final class NativeEngineTests: XCTestCase {
+	func testStableBlockCountAdvancesForCompletedStreamingBlocks() throws {
+		let engine = try XCTUnwrap(MorphMarkdownEngine())
+		XCTAssertEqual(engine.append("First paragraph.\n\n", final: false), 0)
+		XCTAssertGreaterThanOrEqual(engine.stableBlockCount(), 1)
+		XCTAssertEqual(engine.append("Second paragraph.", final: true), 0)
+		XCTAssertGreaterThanOrEqual(engine.stableBlockCount(), 2)
+	}
 	func testSnapshotParsesGfmAndMath() throws {
 		guard let engine = MorphMarkdownEngine() else {
 			throw XCTSkip("native engine unavailable")

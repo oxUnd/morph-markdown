@@ -7,12 +7,23 @@ enum TableCellRole {
 	case body
 }
 
+private struct RenderedBlock {
+	let signature: String
+	let viewCount: Int
+}
+
 final class MorphMarkdownRenderer {
 	var theme: MorphMarkdownTheme = MorphMarkdownThemes.normal
 	var mathRenderer: MorphMathRenderer?
 	var imageLoader: MorphImageLoader = FileImageLoader()
 	var viewportWidthOverride: CGFloat?
 	var onLinkClick: MorphMarkdownLinkHandler?
+	private var renderedBlocks: [RenderedBlock] = []
+
+	func reset(parent: UIStackView) {
+		parent.removeAllArrangedSubviews()
+		renderedBlocks = []
+	}
 
 	func render(json: String, parent: UIStackView) {
 		parent.removeAllArrangedSubviews()
@@ -21,7 +32,51 @@ final class MorphMarkdownRenderer {
 			parent.addArrangedSubview(configuredLabel("snapshot failed", size: theme.bodyTextSize, theme: theme))
 			return
 		}
-		root.children.forEach { renderBlock($0, parent: parent) }
+		renderedBlocks = renderChildren(root.children, from: 0, parent: parent)
+	}
+
+	func renderReusingStablePrefix(json: String, parent: UIStackView, stableBlockCount: Int) {
+		guard let data = json.data(using: .utf8),
+		      let root = try? JSONDecoder().decode(MarkdownNode.self, from: data) else {
+			render(json: json, parent: parent)
+			return
+		}
+		let signatures = root.children.map(blockSignature)
+		let limit = min(renderedBlocks.count, signatures.count, max(0, stableBlockCount))
+		var blockPrefix = 0
+		while blockPrefix < limit, renderedBlocks[blockPrefix].signature == signatures[blockPrefix] {
+			blockPrefix += 1
+		}
+		let viewPrefix = renderedBlocks.prefix(blockPrefix).reduce(0) { $0 + $1.viewCount }
+		removeTail(from: viewPrefix, parent: parent)
+		let tail = renderChildren(root.children, from: blockPrefix, parent: parent)
+		renderedBlocks = Array(renderedBlocks.prefix(blockPrefix)) + tail
+	}
+
+	private func renderChildren(_ children: [MarkdownNode], from start: Int, parent: UIStackView) -> [RenderedBlock] {
+		guard start < children.count else { return [] }
+		return children[start...].map { node in
+			let before = parent.arrangedSubviews.count
+			renderBlock(node, parent: parent)
+			return RenderedBlock(signature: blockSignature(node), viewCount: parent.arrangedSubviews.count - before)
+		}
+	}
+
+	private func removeTail(from prefix: Int, parent: UIStackView) {
+		guard prefix < parent.arrangedSubviews.count else { return }
+		for view in parent.arrangedSubviews[prefix...] {
+			parent.removeArrangedSubview(view)
+			view.removeFromSuperview()
+		}
+	}
+
+	private func blockSignature(_ node: MarkdownNode) -> String {
+		let own = [
+			node.kind, node.literal ?? "", node.url ?? "", node.title ?? "", node.info ?? "",
+			node.sourcepos ?? "", node.level.map(String.init) ?? "", node.listType ?? "",
+			node.start.map(String.init) ?? "", node.checked.map(String.init) ?? ""
+		].joined(separator: "\u{1f}")
+		return own + "\u{1e}" + node.children.map(blockSignature).joined(separator: "\u{1d}")
 	}
 
 	private func renderBlock(_ node: MarkdownNode, parent: UIStackView) {

@@ -22,6 +22,7 @@ int morph_ios_engine_append(morph_ios_engine *engine,
 			    size_t len,
 			    int final);
 char *morph_ios_engine_snapshot_json(morph_ios_engine *engine);
+int morph_ios_engine_stable_block_count(morph_ios_engine *engine);
 void morph_ios_engine_destroy(morph_ios_engine *engine);
 
 morph_ios_bitmap *morph_ios_render_latex(const char *font_path,
