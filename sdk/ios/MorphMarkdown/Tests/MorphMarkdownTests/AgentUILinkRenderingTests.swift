@@ -41,6 +41,21 @@ final class AgentUILinkRenderingTests: XCTestCase {
 		wait(for: [rendered], timeout: 1)
 	}
 
+	func testAttributedParagraphWrapsAtItsAssignedWidth() {
+		let view = InlineAttributedTextView(contentInsets: .zero)
+		view.attributedText = NSAttributedString(
+			string: String(repeating: "wrapping text ", count: 20),
+			attributes: [.font: UIFont.systemFont(ofSize: 17)]
+		)
+		view.frame = CGRect(x: 0, y: 0, width: 140, height: 1)
+		view.layoutIfNeeded()
+
+		let wrapped = view.sizeThatFits(CGSize(width: 140, height: CGFloat.greatestFiniteMagnitude))
+		let singleLine = view.sizeThatFits(CGSize(width: 10_000, height: CGFloat.greatestFiniteMagnitude))
+		XCTAssertGreaterThan(wrapped.height, singleLine.height * 2)
+		XCTAssertEqual(view.intrinsicContentSize.width, UIView.noIntrinsicMetric)
+	}
+
 	private func firstAttributedTextView(in view: UIView) -> InlineAttributedTextView? {
 		if let link = view as? InlineAttributedTextView {
 			return link

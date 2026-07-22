@@ -4,6 +4,7 @@ import UIKit
 final class InlineAttributedTextView: UITextView, UITextViewDelegate, TableIntrinsicOverride {
 	var onLinkClick: MorphMarkdownLinkHandler?
 	var linkTitles: [String: String] = [:]
+	private var measuredLayoutWidth: CGFloat = 0
 
 	init(contentInsets: UIEdgeInsets) {
 		super.init(frame: .zero, textContainer: nil)
@@ -13,8 +14,12 @@ final class InlineAttributedTextView: UITextView, UITextViewDelegate, TableIntri
 		isScrollEnabled = false
 		textContainerInset = contentInsets
 		textContainer.lineFragmentPadding = 0
+		textContainer.lineBreakMode = .byWordWrapping
+		textContainer.widthTracksTextView = true
 		adjustsFontForContentSizeCategory = false
 		delegate = self
+		setContentHuggingPriority(.defaultLow, for: .horizontal)
+		setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 		setContentHuggingPriority(.required, for: .vertical)
 		setContentCompressionResistancePriority(.required, for: .vertical)
 	}
@@ -30,8 +35,18 @@ final class InlineAttributedTextView: UITextView, UITextViewDelegate, TableIntri
 	}
 
 	override var intrinsicContentSize: CGSize {
-		let width = bounds.width > 0 ? bounds.width : UIView.noIntrinsicMetric
-		return sizeThatFits(CGSize(width: width, height: UIView.noIntrinsicMetric))
+		guard bounds.width > 0 else {
+			return CGSize(width: UIView.noIntrinsicMetric, height: super.intrinsicContentSize.height)
+		}
+		let height = sizeThatFits(CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)).height
+		return CGSize(width: UIView.noIntrinsicMetric, height: height)
+	}
+
+	override func layoutSubviews() {
+		super.layoutSubviews()
+		guard abs(bounds.width - measuredLayoutWidth) > 0.5 else { return }
+		measuredLayoutWidth = bounds.width
+		invalidateIntrinsicContentSize()
 	}
 
 	var tableMinimumWidth: CGFloat {
