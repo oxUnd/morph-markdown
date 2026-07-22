@@ -79,7 +79,7 @@ final class MorphMarkdownRenderer {
 		return own + "\u{1e}" + node.children.map(blockSignature).joined(separator: "\u{1d}")
 	}
 
-	private func renderBlock(_ node: MarkdownNode, parent: UIStackView) {
+	func renderBlock(_ node: MarkdownNode, parent: UIStackView) {
 		switch node.kind {
 		case "heading":
 			parent.addArrangedSubview(heading(node))

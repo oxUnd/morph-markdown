@@ -21,11 +21,29 @@ extension MorphMarkdownRenderer {
 		bar.backgroundColor = UIColor(argb: 0xff767676)
 		bar.widthAnchor.constraint(equalToConstant: 4).isActive = true
 		row.addArrangedSubview(bar)
-		let label = configuredLabel(expandTabs(node.plainText.trimmingCharacters(in: .whitespacesAndNewlines), tabSize: theme.tabSize),
-					    size: theme.bodyTextSize, theme: theme, allowCjkSpacing: true)
 		row.setCustomSpacing(theme.blockquoteIndent, after: bar)
-		row.addArrangedSubview(label)
+		row.addArrangedSubview(blockQuoteContent(node))
 		return row
+	}
+
+	private func blockQuoteContent(_ node: MarkdownNode) -> UIView {
+		let content = verticalStack()
+		if node.children.isEmpty {
+			let text = expandTabs(
+				node.literal?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+				tabSize: theme.tabSize
+			)
+			content.addArrangedSubview(configuredLabel(text, size: theme.bodyTextSize, theme: theme, allowCjkSpacing: true))
+			return content
+		}
+		for child in node.children {
+			if child.kind == "paragraph" {
+				content.addArrangedSubview(inlineGroup(child.children, compact: true))
+			} else {
+				renderBlock(child, parent: content)
+			}
+		}
+		return content
 	}
 
 	func codeBlock(_ code: String) -> UIView {
