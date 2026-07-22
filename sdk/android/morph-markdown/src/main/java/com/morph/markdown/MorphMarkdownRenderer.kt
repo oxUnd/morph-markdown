@@ -568,10 +568,28 @@ class MorphMarkdownRenderer(
 			background = fill(theme.blockquoteBarColor)
 			layoutParams = LinearLayout.LayoutParams(context.dp(4), ViewGroup.LayoutParams.MATCH_PARENT)
 		})
-		box.addView(text(expandTabs(plainText(node).trim(), theme.tabSize), theme.bodyTextSizeSp, true).apply {
-			setPadding(context.dp(theme.blockquoteIndentDp), 0, 0, 0)
-		})
+		box.addView(blockQuoteContent(node))
 		return box
+	}
+
+	private fun blockQuoteContent(node: JSONObject): View {
+		val content = verticalGroup(context.dp(theme.blockquoteIndentDp), 0, 0, 0).apply {
+			layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+		}
+		val children = node.optJSONArray("children")
+		if (children == null || children.length() == 0) {
+			content.addView(text(expandTabs(node.optString("literal").trim(), theme.tabSize), theme.bodyTextSizeSp, true))
+			return content
+		}
+		for (i in 0 until children.length()) {
+			val child = children.getJSONObject(i)
+			if (child.optString("kind") == "paragraph") {
+				content.addView(inlineGroup(child.optJSONArray("children"), compact = true))
+			} else {
+				renderBlock(child, content)
+			}
+		}
+		return content
 	}
 
 	private fun table(node: JSONObject): View {
