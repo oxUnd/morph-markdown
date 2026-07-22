@@ -12,6 +12,7 @@ final class DemoViewController: UIViewController {
 	private var themeMode = 0
 	private var tableWrap = true
 	private var compactCode = false
+	private var darkMode = false
 	private var demoImageURL: URL?
 
 	override func viewDidLoad() {
@@ -114,6 +115,7 @@ final class DemoViewController: UIViewController {
 		addButton("Theme \(themeLabel())", action: #selector(themeTapped))
 		addButton(tableWrap ? "Wrap" : "No wrap", action: #selector(tableTapped))
 		addButton(compactCode ? "Code compact" : "Code normal", action: #selector(codeTapped))
+		addButton(darkMode ? "Light" : "Dark", action: #selector(darkTapped))
 	}
 
 	private func addButton(_ title: String, action: Selector) {
@@ -201,7 +203,7 @@ final class DemoViewController: UIViewController {
 			theme.codeBlockTextSize = 13
 			theme.inlineCodeTextSize = 14
 		}
-		return theme
+		return darkMode ? MorphMarkdownThemes.dark(of: theme) : theme
 	}
 
 	private func themeLabel() -> String {
@@ -256,5 +258,23 @@ final class DemoViewController: UIViewController {
 	@objc private func codeTapped() {
 		compactCode.toggle()
 		applyTheme()
+	}
+
+	@objc private func darkTapped() {
+		darkMode.toggle()
+		view.backgroundColor = darkMode ? UIColor(argb: 0xff151713) : UIColor(red: 0.98, green: 0.98, blue: 0.96, alpha: 1)
+		markdownView.backgroundColor = view.backgroundColor
+		applyTheme()
+	}
+}
+
+private extension UIColor {
+	convenience init(argb: UInt32) {
+		self.init(
+			red: CGFloat((argb >> 16) & 0xff) / 255,
+			green: CGFloat((argb >> 8) & 0xff) / 255,
+			blue: CGFloat(argb & 0xff) / 255,
+			alpha: CGFloat((argb >> 24) & 0xff) / 255
+		)
 	}
 }

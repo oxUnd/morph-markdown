@@ -56,6 +56,13 @@ public struct MorphTableStyle: Equatable {
 public struct MorphMarkdownTheme: Equatable {
 	public var bodyTextSize: CGFloat = 16
 	public var bodyTextColor: UInt32 = 0xff1b1b1b
+	public var codeBlockBackgroundColor: UInt32 = 0xffeeeeea
+	public var inlineCodeBackgroundColor: UInt32 = 0xffeeeeea
+	public var blockquoteBarColor: UInt32 = 0xff767676
+	public var horizontalRuleColor: UInt32 = 0xffb7b7b0
+	public var imageErrorBackgroundColor: UInt32 = 0x00ffffff
+	public var imageErrorBorderColor: UInt32 = 0xff454545
+	public var taskCheckColor: UInt32 = 0xffffffff
 	public var headingSizes: [CGFloat] = [26, 23, 20, 18, 16, 16]
 	public var headingLineHeights: [CGFloat] = [34, 30, 27, 25, 24, 24]
 	public var headingTopSpacing: CGFloat = 8
@@ -164,4 +171,31 @@ public enum MorphMarkdownThemes {
 		theme.fontProfile = .hetiLikeHei
 		return theme
 	}()
+
+	public static func hetiLikeWithFont(_ fontName: String, boldFontName: String? = nil) -> MorphMarkdownTheme {
+		var theme = hetiLike
+		theme.fontName = fontName
+		theme.boldFontName = boldFontName
+		theme.fontProfile = .hetiLikeSong
+		return theme
+	}
+
+	public static func dark(of source: MorphMarkdownTheme) -> MorphMarkdownTheme {
+		var theme = source
+		theme.bodyTextColor = 0xffe7e4dc
+		theme.codeBlockBackgroundColor = 0xff252824
+		theme.inlineCodeBackgroundColor = 0xff303229
+		theme.blockquoteBarColor = 0xff74786d
+		theme.horizontalRuleColor = 0xff484c43
+		theme.imageErrorBackgroundColor = 0xff252824
+		theme.imageErrorBorderColor = 0xff676b60
+		theme.taskCheckColor = 0xff11130f
+		theme.linkTextColor = 0xff7bc7cf
+		theme.tableStyle.borderColor = 0xff676b60
+		theme.tableStyle.headerBackgroundColor = 0xff2f332c
+		theme.tableStyle.bodyBackgroundColor = 0xff1d201b
+		theme.tableStyle.headerTextColor = 0xfff1efe7
+		theme.tableStyle.bodyTextColor = 0xffe7e4dc
+		return theme
+	}
 }

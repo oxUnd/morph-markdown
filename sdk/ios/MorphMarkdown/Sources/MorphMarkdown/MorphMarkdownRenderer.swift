@@ -8,7 +8,7 @@ enum TableCellRole {
 }
 
 private struct RenderedBlock {
-	let signature: String
+	let signature: Int
 	let viewCount: Int
 }
 
@@ -19,13 +19,17 @@ final class MorphMarkdownRenderer {
 	var viewportWidthOverride: CGFloat?
 	var onLinkClick: MorphMarkdownLinkHandler?
 	private var renderedBlocks: [RenderedBlock] = []
+	private var progressiveNodes: [MarkdownNode] = []
+	private var progressiveIndex = 0
 
 	func reset(parent: UIStackView) {
 		parent.removeAllArrangedSubviews()
 		renderedBlocks = []
+		cancelProgressiveRender()
 	}
 
 	func render(json: String, parent: UIStackView) {
+		cancelProgressiveRender()
 		parent.removeAllArrangedSubviews()
 		guard let data = json.data(using: .utf8),
 		      let root = try? JSONDecoder().decode(MarkdownNode.self, from: data) else {
@@ -35,11 +39,64 @@ final class MorphMarkdownRenderer {
 		renderedBlocks = renderChildren(root.children, from: 0, parent: parent)
 	}
 
+	func renderProgressively(json: String, parent: UIStackView, initialBlockCount: Int) -> Bool {
+		parent.removeAllArrangedSubviews()
+		guard let data = json.data(using: .utf8),
+		      let root = try? JSONDecoder().decode(MarkdownNode.self, from: data) else {
+			parent.addArrangedSubview(configuredLabel("snapshot failed", size: theme.bodyTextSize, theme: theme))
+			return false
+		}
+		progressiveNodes = root.children
+		progressiveIndex = min(max(0, initialBlockCount), progressiveNodes.count)
+		renderedBlocks = renderChildren(progressiveNodes, from: 0, to: progressiveIndex, parent: parent)
+		return progressiveIndex < progressiveNodes.count
+	}
+
+	func renderNextProgressiveBatch(parent: UIStackView, count: Int) -> Bool {
+		guard progressiveIndex < progressiveNodes.count else { return false }
+		let end = min(progressiveNodes.count, progressiveIndex + max(1, count))
+		let batch = renderChildren(progressiveNodes, from: progressiveIndex, to: end, parent: parent)
+		renderedBlocks.append(contentsOf: batch)
+		progressiveIndex = end
+		if progressiveIndex >= progressiveNodes.count {
+			cancelProgressiveRender(keepingRenderedBlocks: true)
+			return false
+		}
+		return true
+	}
+
+	func cancelProgressiveRender() {
+		cancelProgressiveRender(keepingRenderedBlocks: true)
+	}
+
+	private func cancelProgressiveRender(keepingRenderedBlocks: Bool) {
+		progressiveNodes = []
+		progressiveIndex = 0
+		if !keepingRenderedBlocks {
+			renderedBlocks = []
+		}
+	}
+
 	func renderReusingStablePrefix(json: String, parent: UIStackView, stableBlockCount: Int) {
+		_ = renderReusingStablePrefixProgressively(
+			json: json,
+			parent: parent,
+			stableBlockCount: stableBlockCount,
+			initialTailCount: Int.max
+		)
+	}
+
+	func renderReusingStablePrefixProgressively(
+		json: String,
+		parent: UIStackView,
+		stableBlockCount: Int,
+		initialTailCount: Int
+	) -> Bool {
+		cancelProgressiveRender()
 		guard let data = json.data(using: .utf8),
 		      let root = try? JSONDecoder().decode(MarkdownNode.self, from: data) else {
 			render(json: json, parent: parent)
-			return
+			return false
 		}
 		let signatures = root.children.map(blockSignature)
 		let limit = min(renderedBlocks.count, signatures.count, max(0, stableBlockCount))
@@ -49,13 +106,29 @@ final class MorphMarkdownRenderer {
 		}
 		let viewPrefix = renderedBlocks.prefix(blockPrefix).reduce(0) { $0 + $1.viewCount }
 		removeTail(from: viewPrefix, parent: parent)
-		let tail = renderChildren(root.children, from: blockPrefix, parent: parent)
+		let requestedEnd = initialTailCount >= root.children.count ? root.children.count :
+			blockPrefix + max(0, initialTailCount)
+		let tailEnd = min(root.children.count, requestedEnd)
+		let tail = renderChildren(root.children, from: blockPrefix, to: tailEnd, parent: parent)
 		renderedBlocks = Array(renderedBlocks.prefix(blockPrefix)) + tail
+		guard tailEnd < root.children.count else { return false }
+		progressiveNodes = root.children
+		progressiveIndex = tailEnd
+		return true
 	}
 
 	private func renderChildren(_ children: [MarkdownNode], from start: Int, parent: UIStackView) -> [RenderedBlock] {
-		guard start < children.count else { return [] }
-		return children[start...].map { node in
+		return renderChildren(children, from: start, to: children.count, parent: parent)
+	}
+
+	private func renderChildren(
+		_ children: [MarkdownNode],
+		from start: Int,
+		to end: Int,
+		parent: UIStackView
+	) -> [RenderedBlock] {
+		guard start < end, start < children.count else { return [] }
+		return children[start..<min(end, children.count)].map { node in
 			let before = parent.arrangedSubviews.count
 			renderBlock(node, parent: parent)
 			return RenderedBlock(signature: blockSignature(node), viewCount: parent.arrangedSubviews.count - before)
@@ -70,13 +143,27 @@ final class MorphMarkdownRenderer {
 		}
 	}
 
-	private func blockSignature(_ node: MarkdownNode) -> String {
-		let own = [
-			node.kind, node.literal ?? "", node.url ?? "", node.title ?? "", node.info ?? "",
-			node.sourcepos ?? "", node.level.map(String.init) ?? "", node.listType ?? "",
-			node.start.map(String.init) ?? "", node.checked.map(String.init) ?? ""
-		].joined(separator: "\u{1f}")
-		return own + "\u{1e}" + node.children.map(blockSignature).joined(separator: "\u{1d}")
+	private func blockSignature(_ node: MarkdownNode) -> Int {
+		var hasher = Hasher()
+		hash(node, into: &hasher)
+		return hasher.finalize()
+	}
+
+	private func hash(_ node: MarkdownNode, into hasher: inout Hasher) {
+		hasher.combine(node.kind)
+		hasher.combine(node.literal)
+		hasher.combine(node.url)
+		hasher.combine(node.title)
+		hasher.combine(node.info)
+		hasher.combine(node.sourcepos)
+		hasher.combine(node.level)
+		hasher.combine(node.listType)
+		hasher.combine(node.start)
+		hasher.combine(node.checked)
+		hasher.combine(node.children.count)
+		for child in node.children {
+			hash(child, into: &hasher)
+		}
 	}
 
 	func renderBlock(_ node: MarkdownNode, parent: UIStackView) {
@@ -179,7 +266,8 @@ final class MorphMarkdownRenderer {
 		row.axis = .horizontal
 		row.alignment = .top
 		row.spacing = 0
-		row.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: theme.listItemSpacing, right: 0)
+		row.layoutMargins = UIEdgeInsets(top: 0, left: theme.listIndent,
+						 bottom: theme.listItemSpacing, right: 0)
 		row.isLayoutMarginsRelativeArrangement = true
 		return row
 	}

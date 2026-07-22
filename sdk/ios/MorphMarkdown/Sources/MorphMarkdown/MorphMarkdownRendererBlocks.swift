@@ -5,8 +5,20 @@ extension MorphMarkdownRenderer {
 	func heading(_ node: MarkdownNode) -> UIView {
 		let level = min(max(node.level ?? 1, 1), 6)
 		let size = theme.headingSize(level)
-		let label = configuredLabel(node.plainText, size: size, theme: theme, bold: true, allowCjkSpacing: true)
-		label.layoutMargins = UIEdgeInsets(top: theme.headingTopSpacing, left: 0, bottom: theme.headingBottomSpacing, right: 0)
+		let label = InsetLabel()
+		label.numberOfLines = 0
+		label.font = morphFont(theme: theme, size: size, bold: true)
+		label.textColor = UIColor(argb: theme.bodyTextColor)
+		let style = NSMutableParagraphStyle()
+		style.minimumLineHeight = theme.headingLineHeight(level)
+		style.maximumLineHeight = theme.headingLineHeight(level)
+		label.attributedText = NSAttributedString(
+			string: processedText(node.plainText, theme: theme, allowCjkSpacing: true),
+			attributes: [.font: label.font as Any, .foregroundColor: label.textColor as Any, .paragraphStyle: style]
+		)
+		label.contentInsets = UIEdgeInsets(top: theme.headingTopSpacing, left: 0,
+						 bottom: theme.headingBottomSpacing, right: 0)
+		label.accessibilityTraits.insert(.header)
 		return label
 	}
 
@@ -18,7 +30,7 @@ extension MorphMarkdownRenderer {
 						 bottom: theme.blockquoteBottomSpacing, right: 0)
 		row.isLayoutMarginsRelativeArrangement = true
 		let bar = UIView()
-		bar.backgroundColor = UIColor(argb: 0xff767676)
+		bar.backgroundColor = UIColor(argb: theme.blockquoteBarColor)
 		bar.widthAnchor.constraint(equalToConstant: 4).isActive = true
 		row.addArrangedSubview(bar)
 		row.setCustomSpacing(theme.blockquoteIndent, after: bar)
@@ -56,13 +68,13 @@ extension MorphMarkdownRenderer {
 						   left: theme.codeBlockPaddingHorizontal,
 						   bottom: theme.codeBlockPaddingVertical,
 						   right: theme.codeBlockPaddingHorizontal)
-		label.backgroundColor = UIColor(argb: 0xffeeeeea)
+		label.backgroundColor = UIColor(argb: theme.codeBlockBackgroundColor)
 		return label
 	}
 
 	func rule() -> UIView {
 		let view = UIView()
-		view.backgroundColor = UIColor(argb: 0xffb7b7b0)
+		view.backgroundColor = UIColor(argb: theme.horizontalRuleColor)
 		view.heightAnchor.constraint(equalToConstant: 1).isActive = true
 		return padded(view, top: 14, bottom: 14)
 	}

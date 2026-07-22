@@ -51,11 +51,17 @@ SDKs render the serialized IR with native views.
 - iOS SDK exposes a SwiftUI `MorphMarkdownView`, `MorphMarkdownEngine`,
   `MorphMarkdownTheme`, and math/image plugin protocols.
 - Both SDKs keep math and image rendering pluggable.
+- iOS also exposes `MorphMarkdownUIView` with `.scrollable` and
+  `.intrinsicHeight` layout modes. SwiftUI defaults to intrinsic-height mode;
+  UIKit defaults to internal scrolling.
+- iOS native parsing and MathJax rendering use the bundled C bridge. Prepare the
+  local XCFramework with `sdk/ios/MorphMarkdown/scripts/build-native-ios.sh`.
+- Release maintainers generate a URL/checksum binary manifest with
+  `scripts/prepare-release-package.sh <version> <release-base-url>` from the
+  iOS package directory.
 
 ## Current gaps
 
-- iOS native C bridge adapter is still pending; the SwiftUI SDK currently
-  consumes a `MorphMarkdownNativeEngine` protocol.
 - Stable-prefix detection is conservative and blank-line/block-boundary based;
   finer line-level stability rules are pending.
 - Dedicated footnote presentation nodes are not modeled yet.

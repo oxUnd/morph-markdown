@@ -14,9 +14,13 @@ def files():
 
 
 def swift_functions(lines):
-    starts = re.compile(r"^\s*(public |internal |private |fileprivate |open )?(final )?(class |struct |enum |protocol |extension |func |static func |override func )")
+    starts = re.compile(
+        r"^\s*(public |internal |private |fileprivate |open )?"
+        r"(final |static |class |override |mutating |convenience |required )*"
+        r"(func |init\b|deinit\b|subscript\b)"
+    )
     for index, line in enumerate(lines):
-        if "func " in line or starts.match(line):
+        if starts.match(line):
             yield index
 
 

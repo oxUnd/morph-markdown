@@ -3,30 +3,21 @@ import PackageDescription
 
 let package = Package(
 	name: "MorphMarkdown",
-	platforms: [
-		.iOS(.v15),
-		.macOS(.v14)
-	],
-	products: [
-		.library(name: "MorphMarkdown", targets: ["MorphMarkdown"])
-	],
+	platforms: [.iOS(.v15), .macOS(.v14)],
+	products: [.library(name: "MorphMarkdown", targets: ["MorphMarkdown"])],
 	targets: [
 		.binaryTarget(
 			name: "MorphMarkdownNativeCore",
-			path: ".build/native/MorphMarkdownNativeCore.xcframework"
+			url: "@BINARY_URL@",
+			checksum: "@BINARY_CHECKSUM@"
 		),
 		.target(
 			name: "MorphMarkdownNative",
 			dependencies: ["MorphMarkdownNativeCore"],
 			path: "Sources/MorphMarkdownNative",
 			publicHeadersPath: "include",
-			cSettings: [
-				.headerSearchPath("include"),
-				.headerSearchPath("../../.build/native/include")
-			],
-			linkerSettings: [
-				.linkedLibrary("c++")
-			]
+			cSettings: [.headerSearchPath("include")],
+			linkerSettings: [.linkedLibrary("c++")]
 		),
 		.target(
 			name: "MorphMarkdown",
@@ -37,9 +28,7 @@ let package = Package(
 				"README.md", "Package.release.swift.template"
 			],
 			sources: ["Sources/MorphMarkdown"],
-			resources: [
-				.copy("Resources/STIXTwoMath-Regular.ttf")
-			]
+			resources: [.copy("Resources/STIXTwoMath-Regular.ttf")]
 		),
 		.testTarget(
 			name: "MorphMarkdownTests",

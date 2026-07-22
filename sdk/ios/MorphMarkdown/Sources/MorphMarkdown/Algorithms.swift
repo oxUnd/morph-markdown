@@ -4,6 +4,13 @@ import Foundation
 struct InlineItemSize: Equatable {
 	let width: CGFloat
 	let height: CGFloat
+	let isLineBreak: Bool
+
+	init(width: CGFloat, height: CGFloat, isLineBreak: Bool = false) {
+		self.width = width
+		self.height = height
+		self.isLineBreak = isLineBreak
+	}
 }
 
 struct InlineLine: Equatable {
@@ -28,6 +35,13 @@ enum InlineLineBreaker {
 		var height: CGFloat = 0
 		for index in items.indices {
 			let item = items[index]
+			if item.isLineBreak {
+				lines.append(line(start: start, end: index, width: width, height: height, minHeight: minLineHeight))
+				start = index + 1
+				width = 0
+				height = 0
+				continue
+			}
 			if shouldWrap(width: width, itemWidth: item.width, maxWidth: maxWidth) {
 				lines.append(line(start: start, end: index, width: width, height: height, minHeight: minLineHeight))
 				start = index
@@ -37,7 +51,9 @@ enum InlineLineBreaker {
 			width += item.width
 			height = max(height, item.height)
 		}
-		lines.append(line(start: start, end: items.count, width: width, height: height, minHeight: minLineHeight))
+		if start < items.count || items.last?.isLineBreak == true {
+			lines.append(line(start: start, end: items.count, width: width, height: height, minHeight: minLineHeight))
+		}
 		return lines
 	}
 
@@ -131,17 +147,12 @@ enum TableColumnSizer {
 		let minSum = columns.map(\.minWidth).reduce(0, +)
 		let preferredSum = columns.map(\.preferredWidth).reduce(0, +)
 		if minSum >= availableWidth {
-			return fitBelowMinimum(columns: columns, availableWidth: availableWidth)
+			return columns.map(\.minWidth)
 		}
 		if preferredSum > availableWidth {
 			return shrink(columns, overflow: preferredSum - availableWidth)
 		}
 		return grow(columns, extra: availableWidth - preferredSum)
-	}
-
-	private static func fitBelowMinimum(columns: [TableColumnWidth], availableWidth: CGFloat) -> [CGFloat] {
-		let weights = columns.map { max($0.minWidth, 1) }
-		return distribute(availableWidth, weights: weights)
 	}
 
 	private static func shrink(_ columns: [TableColumnWidth], overflow: CGFloat) -> [CGFloat] {

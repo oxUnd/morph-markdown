@@ -1,0 +1,46 @@
+name: iOS SDK
+
+on:
+  pull_request:
+    paths:
+      - "include/**"
+      - "src/**"
+      - "sdk/ios/**"
+      - ".github/workflows/ios-sdk.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install native build tools
+        run: brew install cmake ninja meson pkg-config
+      - name: Prepare MathJax-C
+        run: ./scripts/prepare-third-party.sh
+      - name: Build native XCFramework
+        run: sdk/ios/MorphMarkdown/scripts/build-native-ios.sh
+      - name: Run iOS unit and UIKit tests
+        working-directory: sdk/ios/MorphMarkdown
+        run: >-
+          xcodebuild
+          -scheme MorphMarkdown
+          -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+          CODE_SIGNING_ALLOWED=NO
+          test
+      - name: Build iOS demo
+        run: >-
+          xcodebuild
+          -project demo/ios/MorphMarkdownDemo/MorphMarkdownDemo.xcodeproj
+          -scheme MorphMarkdownDemo
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build
+      - name: Enforce source limits
+        working-directory: sdk/ios/MorphMarkdown
+        run: python3 scripts/check-function-lines.py

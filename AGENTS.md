@@ -148,9 +148,10 @@ PY
 
 ## Current Known Gaps
 
-- iOS native C bridge adapter is still pending; SwiftUI SDK currently consumes a
-  `MorphMarkdownNativeEngine` protocol.
-- iOS table layout should eventually mirror Android intrinsic table sizing.
+- iOS and Android both use native C bridges. iOS local development requires the
+  generated XCFramework under `sdk/ios/MorphMarkdown/.build/native`.
+- iOS table layout mirrors Android intrinsic sizing; keep shared sizing fixtures
+  aligned when changing either implementation.
 - Stable-prefix streaming detection is conservative and blank-line/block-boundary
   based.
 - Dedicated footnote presentation nodes are not modeled yet.

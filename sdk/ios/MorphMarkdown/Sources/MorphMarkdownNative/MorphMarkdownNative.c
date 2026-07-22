@@ -77,7 +77,8 @@ void morph_ios_engine_destroy(morph_ios_engine *engine)
 morph_ios_bitmap *morph_ios_render_latex(const char *font_path,
 					 const char *latex,
 					 int display,
-					 double font_size)
+					 double font_size,
+					 uint32_t foreground_rgba)
 {
 	morph_ios_bitmap *out;
 	mjx_opts opts;
@@ -90,7 +91,7 @@ morph_ios_bitmap *morph_ios_render_latex(const char *font_path,
 	memset(&opts, 0, sizeof(opts));
 	opts.font_path = font_path;
 	opts.font_size = font_size > 0.0 ? font_size : 18.0;
-	opts.fg_color = 0x1b1b1bffu;
+	opts.fg_color = foreground_rgba;
 	opts.bg_color = 0x00000000u;
 	opts.dpi = 72u;
 

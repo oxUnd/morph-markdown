@@ -10,6 +10,7 @@ final class ListMarkerView: UIView {
 		self.theme = theme
 		super.init(frame: .zero)
 		backgroundColor = .clear
+		isAccessibilityElement = false
 	}
 
 	required init?(coder: NSCoder) {
@@ -82,6 +83,10 @@ final class TaskMarkerView: UIView {
 		self.theme = theme
 		super.init(frame: .zero)
 		backgroundColor = .clear
+		isAccessibilityElement = true
+		accessibilityTraits = .staticText
+		accessibilityLabel = "task"
+		accessibilityValue = checked ? "completed" : "incomplete"
 	}
 
 	required init?(coder: NSCoder) {
@@ -111,7 +116,7 @@ final class TaskMarkerView: UIView {
 		let rect = bounds.insetBy(dx: 2, dy: 2)
 		let path = UIBezierPath(roundedRect: rect, cornerRadius: 2)
 		if checked {
-			UIColor(argb: 0xffd4d4d0).setFill()
+			UIColor(argb: theme.bodyTextColor).withAlphaComponent(0.2).setFill()
 			path.fill()
 		} else {
 			UIColor(argb: 0xffd4d4d0).setStroke()
@@ -125,7 +130,7 @@ final class TaskMarkerView: UIView {
 		path.lineWidth = 2.4
 		path.lineCapStyle = .round
 		path.lineJoinStyle = .round
-		UIColor.white.setStroke()
+		UIColor(argb: theme.taskCheckColor).setStroke()
 		path.move(to: CGPoint(x: bounds.width * 0.28, y: bounds.height * 0.52))
 		path.addLine(to: CGPoint(x: bounds.width * 0.43, y: bounds.height * 0.68))
 		path.addLine(to: CGPoint(x: bounds.width * 0.74, y: bounds.height * 0.34))

@@ -10,16 +10,22 @@ public struct MorphMarkdownView: UIViewRepresentable {
 	private let viewportWidth: CGFloat?
 	private let onRendered: (() -> Void)?
 	private let onLinkClick: MorphMarkdownLinkHandler?
+	private let options: MorphMarkdownOptions
+	private let layoutMode: MorphMarkdownLayoutMode
+	private let onContentLongPress: MorphMarkdownContentLongPressHandler?
 
 	public init(
 		markdown: String,
 		isStreaming: Bool = false,
 		theme: MorphMarkdownTheme = MorphMarkdownThemes.normal,
-		mathRenderer: MorphMathRenderer? = MathJaxMathRenderer(),
-		imageLoader: MorphImageLoader = FileImageLoader(),
+		mathRenderer: MorphMathRenderer? = MathJaxMathRenderer.bundled,
+		imageLoader: MorphImageLoader = FileImageLoader.shared,
 		viewportWidth: CGFloat? = nil,
+		options: MorphMarkdownOptions = MorphMarkdownOptions(),
+		layoutMode: MorphMarkdownLayoutMode = .intrinsicHeight,
 		onRendered: (() -> Void)? = nil,
-		onLinkClick: MorphMarkdownLinkHandler? = nil
+		onLinkClick: MorphMarkdownLinkHandler? = nil,
+		onContentLongPress: MorphMarkdownContentLongPressHandler? = nil
 	) {
 		chunks = [markdown]
 		self.isStreaming = isStreaming
@@ -27,30 +33,36 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		self.mathRenderer = mathRenderer
 		self.imageLoader = imageLoader
 		self.viewportWidth = viewportWidth
+		self.options = options
+		self.layoutMode = layoutMode
 		self.onRendered = onRendered
 		self.onLinkClick = onLinkClick
+		self.onContentLongPress = onContentLongPress
 	}
 
 	public func makeUIView(context: Context) -> MorphMarkdownUIView {
 		let view = MorphMarkdownUIView()
-		view.theme = theme
-		view.mathRenderer = mathRenderer
-		view.imageLoader = imageLoader
-		view.viewportWidthOverride = viewportWidth
-		view.onRendered = onRendered
-		view.onLinkClick = onLinkClick
+		view.apply(configuration: configuration)
 		return view
 	}
 
 	public func updateUIView(_ uiView: MorphMarkdownUIView, context: Context) {
-		if uiView.theme != theme {
-			uiView.theme = theme
-		}
-		if let viewportWidth {
-			uiView.viewportWidthOverride = viewportWidth
-		}
-		uiView.onRendered = onRendered
+		uiView.apply(configuration: configuration)
 		context.coordinator.render(chunks: chunks, isStreaming: isStreaming, into: uiView)
+	}
+
+	private var configuration: MorphMarkdownConfiguration {
+		MorphMarkdownConfiguration(
+			theme: theme,
+			options: options,
+			layoutMode: layoutMode,
+			viewportWidth: viewportWidth,
+			mathRenderer: mathRenderer,
+			imageLoader: imageLoader,
+			onRendered: onRendered,
+			onLinkClick: onLinkClick,
+			onContentLongPress: onContentLongPress
+		)
 	}
 
 	@available(iOS 16.0, *)

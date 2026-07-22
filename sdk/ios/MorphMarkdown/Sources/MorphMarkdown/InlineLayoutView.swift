@@ -70,6 +70,9 @@ final class InlineLayoutView: UIView {
 
 	private func measureChildren(maxWidth: CGFloat) {
 		measuredSizes = subviews.map { child in
+			if child is InlineLineBreakView {
+				return InlineItemSize(width: 0, height: 0, isLineBreak: true)
+			}
 			let fit = child.sizeThatFits(CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude))
 			return InlineItemSize(width: ceil(fit.width), height: ceil(fit.height))
 		}
@@ -103,5 +106,10 @@ final class InlineLayoutView: UIView {
 			x += size.width
 		}
 	}
+}
+
+final class InlineLineBreakView: UIView {
+	override func sizeThatFits(_ size: CGSize) -> CGSize { .zero }
+	override var intrinsicContentSize: CGSize { .zero }
 }
 #endif

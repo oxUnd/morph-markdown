@@ -7,8 +7,25 @@ public final class MorphMarkdownUIView: UIScrollView {
 	private let renderer = MorphMarkdownRenderer()
 	private let renderDebounce = RenderDebounceState()
 	private var scheduledRender: DispatchWorkItem?
+	private var progressiveRender: DispatchWorkItem?
+	private var applyingConfiguration = false
+	private lazy var contentLongPressRecognizer = UILongPressGestureRecognizer(
+		target: self,
+		action: #selector(handleContentLongPress(_:))
+	)
 
 	public var options = MorphMarkdownOptions()
+	public var layoutMode: MorphMarkdownLayoutMode = .scrollable {
+		didSet {
+			guard layoutMode != oldValue else { return }
+			applyLayoutMode()
+			invalidateIntrinsicContentSize()
+			if !applyingConfiguration {
+				renderSnapshot(autoScroll: false)
+			}
+		}
+	}
+	public var onContentLongPress: MorphMarkdownContentLongPressHandler?
 	public var viewportWidthOverride: CGFloat? {
 		get { renderer.viewportWidthOverride }
 		set {
@@ -49,10 +66,32 @@ public final class MorphMarkdownUIView: UIScrollView {
 		get { renderer.onLinkClick }
 		set {
 			renderer.onLinkClick = newValue
-			renderSnapshot(autoScroll: false)
 		}
 	}
 	public var onRendered: (() -> Void)?
+
+	public func apply(configuration: MorphMarkdownConfiguration) {
+		let nextWidth = Self.validViewportWidth(configuration.viewportWidth)
+		let requiresRender = layoutMode != configuration.layoutMode ||
+			renderer.theme != configuration.theme ||
+			renderer.mathRenderer !== configuration.mathRenderer ||
+			renderer.imageLoader !== configuration.imageLoader ||
+			renderer.viewportWidthOverride != nextWidth
+		options = configuration.options
+		applyingConfiguration = true
+		layoutMode = configuration.layoutMode
+		applyingConfiguration = false
+		renderer.theme = configuration.theme
+		renderer.mathRenderer = configuration.mathRenderer
+		renderer.imageLoader = configuration.imageLoader
+		renderer.onLinkClick = configuration.onLinkClick
+		renderer.viewportWidthOverride = nextWidth
+		onRendered = configuration.onRendered
+		onContentLongPress = configuration.onContentLongPress
+		if requiresRender {
+			renderSnapshot(autoScroll: false)
+		}
+	}
 
 	public override init(frame: CGRect) {
 		guard let engine = MorphMarkdownEngine() else {
@@ -86,19 +125,22 @@ public final class MorphMarkdownUIView: UIScrollView {
 		case .none:
 			break
 		case .renderNow(let autoScroll):
-			renderSnapshot(autoScroll: autoScroll, reuseStablePrefix: true)
+			scheduleRender(afterMilliseconds: 0, autoScroll: autoScroll)
 		case .schedule(let delay):
-			let work = DispatchWorkItem { [weak self] in
-				guard let self else { return }
-				self.scheduledRender = nil
-				self.performRenderSnapshot(
-					autoScroll: self.renderDebounce.onScheduledRender(),
-					reuseStablePrefix: true
-				)
-			}
-			scheduledRender = work
-			DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: work)
+			scheduleRender(afterMilliseconds: delay, autoScroll: nil)
 		}
+	}
+
+	private func scheduleRender(afterMilliseconds delay: Int, autoScroll: Bool?) {
+		scheduledRender?.cancel()
+		let work = DispatchWorkItem { [weak self] in
+			guard let self else { return }
+			self.scheduledRender = nil
+			let shouldScroll = autoScroll ?? self.renderDebounce.onScheduledRender()
+			self.performRenderSnapshot(autoScroll: shouldScroll, reuseStablePrefix: true)
+		}
+		scheduledRender = work
+		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: work)
 	}
 
 	public func setMarkdown(_ markdown: String, final: Bool = true) {
@@ -127,7 +169,19 @@ public final class MorphMarkdownUIView: UIScrollView {
 		return CGSize(width: width, height: ceil(max(1, fit.height)))
 	}
 
+	public override var intrinsicContentSize: CGSize {
+		guard layoutMode == .intrinsicHeight else {
+			return CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
+		}
+		let width = Self.validViewportWidth(viewportWidthOverride) ?? bounds.width
+		guard width > 0 else {
+			return CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
+		}
+		return sizeThatFits(CGSize(width: width, height: UIView.noIntrinsicMetric))
+	}
+
 	public func reset() {
+		cancelScheduledRender()
 		engine.close()
 		guard let next = MorphMarkdownEngine() else {
 			renderError()
@@ -135,6 +189,8 @@ public final class MorphMarkdownUIView: UIScrollView {
 		}
 		engine = next
 		renderer.reset(parent: body)
+		invalidateIntrinsicContentSize()
+		onRendered?()
 	}
 
 	public func renderSnapshot(autoScroll: Bool = false, reuseStablePrefix: Bool = false) {
@@ -147,12 +203,18 @@ public final class MorphMarkdownUIView: UIScrollView {
 			renderError()
 			return
 		}
-		if reuseStablePrefix {
-			renderer.renderReusingStablePrefix(
+		var hasProgressiveTail = false
+		if reuseStablePrefix, layoutMode == .scrollable {
+			hasProgressiveTail = renderer.renderReusingStablePrefixProgressively(
 				json: json,
 				parent: body,
-				stableBlockCount: engine.stableBlockCount()
+				stableBlockCount: engine.stableBlockCount(),
+				initialTailCount: 1
 			)
+		} else if reuseStablePrefix {
+			renderer.renderReusingStablePrefix(json: json, parent: body, stableBlockCount: engine.stableBlockCount())
+		} else if layoutMode == .scrollable {
+			hasProgressiveTail = renderer.renderProgressively(json: json, parent: body, initialBlockCount: 8)
 		} else {
 			renderer.render(json: json, parent: body)
 		}
@@ -160,10 +222,13 @@ public final class MorphMarkdownUIView: UIScrollView {
 		layoutIfNeeded()
 		invalidateIntrinsicContentSize()
 		superview?.setNeedsLayout()
-		if autoScroll {
+		if autoScroll, !hasProgressiveTail {
 			scrollToBottom()
 		}
 		onRendered?()
+		if hasProgressiveTail {
+			scheduleProgressiveRender(autoScrollWhenComplete: autoScroll)
+		}
 	}
 
 	public func close() {
@@ -174,12 +239,35 @@ public final class MorphMarkdownUIView: UIScrollView {
 	private func cancelScheduledRender() {
 		scheduledRender?.cancel()
 		scheduledRender = nil
+		progressiveRender?.cancel()
+		progressiveRender = nil
+		renderer.cancelProgressiveRender()
 		renderDebounce.cancel()
+	}
+
+	private func scheduleProgressiveRender(autoScrollWhenComplete: Bool) {
+		let work = DispatchWorkItem { [weak self] in
+			guard let self else { return }
+			self.progressiveRender = nil
+			let hasMore = self.renderer.renderNextProgressiveBatch(parent: self.body, count: 1)
+			self.body.setNeedsLayout()
+			self.setNeedsLayout()
+			if hasMore {
+				self.scheduleProgressiveRender(autoScrollWhenComplete: autoScrollWhenComplete)
+			} else {
+				self.invalidateIntrinsicContentSize()
+				if autoScrollWhenComplete {
+					self.scrollToBottom()
+				}
+			}
+		}
+		progressiveRender = work
+		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(1), execute: work)
 	}
 
 	private func configure() {
 		alwaysBounceVertical = false
-		isScrollEnabled = false
+		addGestureRecognizer(contentLongPressRecognizer)
 		addSubview(body)
 		body.axis = .vertical
 		body.alignment = .fill
@@ -192,6 +280,20 @@ public final class MorphMarkdownUIView: UIScrollView {
 			body.bottomAnchor.constraint(equalTo: contentLayoutGuide.bottomAnchor),
 			body.widthAnchor.constraint(equalTo: frameLayoutGuide.widthAnchor)
 		])
+		applyLayoutMode()
+	}
+
+	private func applyLayoutMode() {
+		isScrollEnabled = layoutMode == .scrollable
+		alwaysBounceVertical = layoutMode == .scrollable
+	}
+
+	@objc private func handleContentLongPress(_ recognizer: UILongPressGestureRecognizer) {
+		guard recognizer.state == .began else { return }
+		let point = recognizer.location(in: self)
+		if onContentLongPress?(point) == true {
+			UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+		}
 	}
 
 	private func renderError() {

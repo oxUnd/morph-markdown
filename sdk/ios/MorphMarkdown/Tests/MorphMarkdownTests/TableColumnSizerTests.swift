@@ -19,7 +19,7 @@ final class TableColumnSizerTests: XCTestCase {
 		XCTAssertGreaterThanOrEqual(widths[1], 90)
 	}
 
-	func testFitsViewportWhenMinimumWidthsExceedAvailableWidth() {
+	func testPreservesMinimumWidthsWhenTheyExceedAvailableWidth() {
 		let widths = TableColumnSizer.sizeColumns(
 			cells: [
 				TableCellWidth(column: 0, minWidth: 260, preferredWidth: 320),
@@ -31,8 +31,7 @@ final class TableColumnSizerTests: XCTestCase {
 			wrap: true
 		)
 
-		XCTAssertEqual(widths.reduce(0, +), 360)
-		XCTAssertGreaterThan(widths[0], widths[1])
+		XCTAssertEqual(widths, [260, 220])
 	}
 
 	func testGrowsPreferredColumnsToUseAvailableWidth() {

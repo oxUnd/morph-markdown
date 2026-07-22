@@ -2,12 +2,19 @@
 import UIKit
 import MorphMarkdownNative
 
-public protocol MorphMathRenderer {
+public protocol MorphMathRenderer: AnyObject {
 	func render(latex: String, display: Bool, theme: MorphMarkdownTheme) -> UIView?
 }
 
 public final class MathJaxMathRenderer: MorphMathRenderer {
+	public static let bundled: MathJaxMathRenderer? = MathJaxMathRenderer()
 	private let fontPath: String
+	private let imageCache: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 256
+		cache.totalCostLimit = 16 * 1024 * 1024
+		return cache
+	}()
 
 	public init?(fontPath: String) {
 		self.fontPath = fontPath
@@ -21,7 +28,9 @@ public final class MathJaxMathRenderer: MorphMathRenderer {
 	}
 
 	private static func findFontPath(bundle: Bundle?) -> String? {
-		let candidates = [bundle, Bundle.main, Bundle(for: BundleToken.self)].compactMap { $0 }
+		let roots = [bundle, Bundle.module, Bundle.main, Bundle(for: BundleToken.self)].compactMap { $0 } +
+			Bundle.allBundles + Bundle.allFrameworks
+		let candidates = roots + roots.flatMap(resourceBundles(in:))
 		for candidate in candidates {
 			if let path = candidate.path(forResource: "STIXTwoMath-Regular", ofType: "ttf") {
 				return path
@@ -30,18 +39,46 @@ public final class MathJaxMathRenderer: MorphMathRenderer {
 		return nil
 	}
 
+	private static func resourceBundles(in bundle: Bundle) -> [Bundle] {
+		guard let root = bundle.resourceURL,
+		      let urls = try? FileManager.default.contentsOfDirectory(
+			at: root,
+			includingPropertiesForKeys: nil,
+			options: [.skipsHiddenFiles]
+		      ) else {
+			return []
+		}
+		return urls.compactMap { $0.pathExtension == "bundle" ? Bundle(url: $0) : nil }
+	}
+
 	public func render(latex: String, display: Bool, theme: MorphMarkdownTheme) -> UIView? {
 		let scale = UIScreen.main.scale
 		let pixelSize = theme.mathSize() * scale
-		guard let bitmap = morph_ios_render_latex(fontPath, latex, display ? 1 : 0, pixelSize) else {
+		let key = "\(latex)\u{1f}\(display)\u{1f}\(pixelSize)\u{1f}\(theme.bodyTextColor)\u{1f}\(scale)" as NSString
+		if let cached = imageCache.object(forKey: key) {
+			let imageView = fixedImageView(cached)
+			return display ? displayContainer(imageView) : imageView
+		}
+		guard let bitmap = morph_ios_render_latex(
+			fontPath,
+			latex,
+			display ? 1 : 0,
+			pixelSize,
+			Self.rgbaColor(theme.bodyTextColor)
+		) else {
 			return nil
 		}
 		defer { morph_ios_bitmap_destroy(bitmap) }
 		guard let image = image(from: bitmap.pointee, scale: scale) else {
 			return nil
 		}
+		imageCache.setObject(image, forKey: key, cost: Int(bitmap.pointee.width * bitmap.pointee.height * 4))
 		let imageView = fixedImageView(image)
 		return display ? displayContainer(imageView) : imageView
+	}
+
+	private static func rgbaColor(_ argb: UInt32) -> UInt32 {
+		return ((argb & 0x00ffffff) << 8) | ((argb >> 24) & 0xff)
 	}
 
 	private func image(from bitmap: morph_ios_bitmap, scale: CGFloat) -> UIImage? {
@@ -141,18 +178,33 @@ private final class FixedSizeContainerView: UIView {
 
 private final class BundleToken {}
 
-public protocol MorphImageLoader {
+public protocol MorphImageLoader: AnyObject {
 	func load(url: String, theme: MorphMarkdownTheme) -> UIView?
 }
 
 public final class FileImageLoader: MorphImageLoader {
+	public static let shared = FileImageLoader()
+	private let imageCache: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 64
+		cache.totalCostLimit = 16 * 1024 * 1024
+		return cache
+	}()
+
 	public init() {}
 
 	public func load(url: String, theme: MorphMarkdownTheme) -> UIView? {
 		let path = url.hasPrefix("file://") ? String(url.dropFirst("file://".count)) : url
-		guard let image = UIImage(contentsOfFile: path) else {
+		let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+		let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+		let fileSize = attributes?[.size] as? NSNumber ?? 0
+		let key = "\(path)\u{1f}\(modified)\u{1f}\(fileSize)" as NSString
+		let decoded = imageCache.object(forKey: key) ?? UIImage(contentsOfFile: path)
+		guard let image = decoded else {
 			return nil
 		}
+		let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+		imageCache.setObject(image, forKey: key, cost: cost)
 		let view = ScalableImageView(image: image, maxSize: CGSize(width: theme.imageMaxWidth,
 									   height: theme.imageMaxHeight))
 		view.contentMode = .scaleAspectFit
@@ -176,7 +228,7 @@ private final class ScalableImageView: UIImageView, TableIntrinsicOverride {
 	}
 
 	var tableMinimumWidth: CGFloat {
-		return 1
+		return fittedSize(originalSize, limit: maxSize).width
 	}
 
 	override func sizeThatFits(_ size: CGSize) -> CGSize {

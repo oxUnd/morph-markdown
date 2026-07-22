@@ -8,6 +8,7 @@ import android.text.method.LinkMovementMethod
 import android.text.style.BackgroundColorSpan
 import android.text.style.ClickableSpan
 import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.view.Gravity
 import android.view.View
@@ -225,7 +226,12 @@ class MorphMarkdownRenderer(
 		return LinearLayout(context).apply {
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.TOP
-			setPadding(0, 0, 0, context.dp(theme.listItemSpacingDp))
+			setPadding(
+				context.dp(theme.listIndentDp),
+				0,
+				0,
+				context.dp(theme.listItemSpacingDp)
+			)
 		}
 	}
 
@@ -250,7 +256,12 @@ class MorphMarkdownRenderer(
 		val row = LinearLayout(context).apply {
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.TOP
-			setPadding(0, 0, 0, context.dp(theme.listItemSpacingDp))
+			setPadding(
+				context.dp(theme.listIndentDp),
+				0,
+				0,
+				context.dp(theme.listItemSpacingDp)
+			)
 		}
 		row.addView(TaskMarkerView(context, item.optBoolean("checked", false), theme).apply {
 			layoutParams = LinearLayout.LayoutParams(
@@ -336,8 +347,26 @@ class MorphMarkdownRenderer(
 			"code" -> appendSpannableText(out, child.optString("literal"), role, state, link, code = true)
 			"soft_break", "hard_break" -> appendSpannableText(out, "\n", role, state, link, code = false)
 			"link" -> appendSpannableLink(out, child, role, state)
+			"strong" -> appendStyledSpannable(out, child, role, state, link, android.graphics.Typeface.BOLD)
+			"emph" -> appendStyledSpannable(out, child, role, state, link, android.graphics.Typeface.ITALIC)
 			else -> false
 		}
+	}
+
+	private fun appendStyledSpannable(
+		out: SpannableStringBuilder,
+		child: JSONObject,
+		role: TableCellRole,
+		state: InlineSpanState,
+		link: LinkTarget?,
+		style: Int
+	): Boolean {
+		val start = out.length
+		if (!appendSpannableChildren(out, child.optJSONArray("children"), role, state, link)) return false
+		if (out.length > start) {
+			out.setSpan(StyleSpan(style), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+		}
+		return true
 	}
 
 	private fun appendSpannableLink(

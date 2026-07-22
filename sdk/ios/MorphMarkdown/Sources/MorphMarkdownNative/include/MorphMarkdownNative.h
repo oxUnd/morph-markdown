@@ -28,7 +28,8 @@ void morph_ios_engine_destroy(morph_ios_engine *engine);
 morph_ios_bitmap *morph_ios_render_latex(const char *font_path,
 					 const char *latex,
 					 int display,
-					 double font_size);
+					 double font_size,
+					 uint32_t foreground_rgba);
 void morph_ios_bitmap_destroy(morph_ios_bitmap *bitmap);
 void morph_ios_free(void *ptr);
 

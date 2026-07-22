@@ -118,6 +118,9 @@ final class MarkdownTableView: UIView {
 		guard theme.tableCellWrap, let availableWidth, availableWidth > 0, widths.count > 1 else {
 			return widths
 		}
+		guard widths.reduce(0, +) <= availableWidth + 0.5 else {
+			return widths
+		}
 		var balanced = widths
 		let slack = columnSlack(widths: balanced)
 		let deficits = columnDeficits(widths: balanced, inputs: inputs)

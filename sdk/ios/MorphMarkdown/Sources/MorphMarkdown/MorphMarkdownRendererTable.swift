@@ -30,6 +30,10 @@ extension MorphMarkdownRenderer {
 	func addTableCells(_ table: MarkdownTableView, cells: [MarkdownNode], header: Bool) {
 		let role: TableCellRole = header ? .header : .body
 		for cellNode in cells {
+			if let fastCell = attributedInlineGroup(cellNode.inlineChildren, compact: true, role: role) {
+				table.addCell(fastCell)
+				continue
+			}
 			let cell = InlineLayoutView()
 			cell.lineSpacing = theme.tableCellLineSpacing
 			cell.minLineHeight = tableTextSize(role) * theme.tableCellLineHeightMultiplier
@@ -110,7 +114,7 @@ final class TableScrollWrapper: UIView {
 					  height: max(0, bounds.height - theme.tableTopSpacing - theme.tableBottomSpacing))
 		tableView.frame = CGRect(origin: .zero, size: content)
 		scrollView.contentSize = content
-		scrollView.isScrollEnabled = !theme.tableCellWrap && content.width > bounds.width + 0.5
+		scrollView.isScrollEnabled = content.width > bounds.width + 0.5
 		scrollView.showsHorizontalScrollIndicator = scrollView.isScrollEnabled
 		invalidateHeightIfNeeded(contentHeight: content.height)
 	}
@@ -132,9 +136,6 @@ final class TableScrollWrapper: UIView {
 	private func contentSize(for tableSize: CGSize, viewportWidth: CGFloat) -> CGSize {
 		if viewportWidth <= 0 {
 			return tableSize
-		}
-		if theme.tableCellWrap {
-			return CGSize(width: viewportWidth, height: tableSize.height)
 		}
 		return CGSize(width: max(tableSize.width, viewportWidth), height: tableSize.height)
 	}

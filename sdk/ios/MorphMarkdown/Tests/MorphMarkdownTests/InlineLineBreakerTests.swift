@@ -41,4 +41,20 @@ final class InlineLineBreakerTests: XCTestCase {
 		let lines = InlineLineBreaker.breakLines(items: [], maxWidth: 90, minLineHeight: 20)
 		XCTAssertTrue(lines.isEmpty)
 	}
+
+	func testForcedBreakStartsANewLine() {
+		let lines = InlineLineBreaker.breakLines(
+			items: [
+				InlineItemSize(width: 40, height: 12),
+				InlineItemSize(width: 0, height: 0, isLineBreak: true),
+				InlineItemSize(width: 35, height: 12)
+			],
+			maxWidth: 100,
+			minLineHeight: 16
+		)
+
+		XCTAssertEqual(lines.count, 2)
+		XCTAssertEqual(lines[0], InlineLine(start: 0, end: 1, width: 40, height: 16))
+		XCTAssertEqual(lines[1], InlineLine(start: 2, end: 3, width: 35, height: 16))
+	}
 }
