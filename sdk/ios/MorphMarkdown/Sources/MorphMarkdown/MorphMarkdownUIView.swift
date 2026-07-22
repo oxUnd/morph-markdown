@@ -52,6 +52,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 			renderSnapshot(autoScroll: false)
 		}
 	}
+	public var onRendered: (() -> Void)?
 
 	public override init(frame: CGRect) {
 		guard let engine = MorphMarkdownEngine() else {
@@ -157,9 +158,12 @@ public final class MorphMarkdownUIView: UIScrollView {
 		}
 		body.setNeedsLayout()
 		layoutIfNeeded()
+		invalidateIntrinsicContentSize()
+		superview?.setNeedsLayout()
 		if autoScroll {
 			scrollToBottom()
 		}
+		onRendered?()
 	}
 
 	public func close() {

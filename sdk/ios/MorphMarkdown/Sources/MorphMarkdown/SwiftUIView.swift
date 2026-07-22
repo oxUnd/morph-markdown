@@ -8,6 +8,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 	private let mathRenderer: MorphMathRenderer?
 	private let imageLoader: MorphImageLoader
 	private let viewportWidth: CGFloat?
+	private let onRendered: (() -> Void)?
 	private let onLinkClick: MorphMarkdownLinkHandler?
 
 	public init(
@@ -17,6 +18,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		mathRenderer: MorphMathRenderer? = MathJaxMathRenderer(),
 		imageLoader: MorphImageLoader = FileImageLoader(),
 		viewportWidth: CGFloat? = nil,
+		onRendered: (() -> Void)? = nil,
 		onLinkClick: MorphMarkdownLinkHandler? = nil
 	) {
 		chunks = [markdown]
@@ -25,6 +27,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		self.mathRenderer = mathRenderer
 		self.imageLoader = imageLoader
 		self.viewportWidth = viewportWidth
+		self.onRendered = onRendered
 		self.onLinkClick = onLinkClick
 	}
 
@@ -34,6 +37,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		view.mathRenderer = mathRenderer
 		view.imageLoader = imageLoader
 		view.viewportWidthOverride = viewportWidth
+		view.onRendered = onRendered
 		view.onLinkClick = onLinkClick
 		return view
 	}
@@ -45,6 +49,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		if let viewportWidth {
 			uiView.viewportWidthOverride = viewportWidth
 		}
+		uiView.onRendered = onRendered
 		context.coordinator.render(chunks: chunks, isStreaming: isStreaming, into: uiView)
 	}
 
