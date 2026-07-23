@@ -58,4 +58,55 @@ extension MarkdownNode {
 		}
 		return children
 	}
+
+	var renderedPlainText: String {
+		switch kind {
+		case "document":
+			return joinedBlocks(children)
+		case "heading", "paragraph", "block_quote":
+			return children.map(\.renderedPlainText).joined()
+		case "list":
+			let ordered = listType == "ordered"
+			let first = start ?? 1
+			return children.enumerated().map { index, child in
+				let marker = ordered ? "\(first + index)." : "•"
+				return "\(marker) \(child.renderedPlainText)"
+			}.joined(separator: "\n")
+		case "item":
+			return joinedBlocks(children)
+		case "table":
+			let headerCells = children.prefix { $0.kind == "table_cell" }
+			let rows = children.dropFirst(headerCells.count)
+			var lines: [String] = []
+			if !headerCells.isEmpty {
+				lines.append(headerCells.map(\.renderedPlainText).joined(separator: "\t"))
+			}
+			lines.append(contentsOf: rows.map(\.renderedPlainText))
+			return lines.joined(separator: "\n")
+		case "table_row":
+			return children.map(\.renderedPlainText).joined(separator: "\t")
+		case "table_header":
+			return children.map(\.renderedPlainText).joined(separator: "\t")
+		case "table_body":
+			return children.map(\.renderedPlainText).joined(separator: "\n")
+		case "table_cell":
+			return children.map(\.renderedPlainText).joined()
+		case "soft_break", "hard_break":
+			return "\n"
+		case "image", "thematic_break":
+			return ""
+		default:
+			if let literal {
+				return literal
+			}
+			return children.map(\.renderedPlainText).joined()
+		}
+	}
+
+	private func joinedBlocks(_ nodes: [MarkdownNode]) -> String {
+		nodes
+			.map(\.renderedPlainText)
+			.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+			.joined(separator: "\n\n")
+	}
 }

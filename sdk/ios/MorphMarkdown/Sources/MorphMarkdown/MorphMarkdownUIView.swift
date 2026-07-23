@@ -69,6 +69,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 		}
 	}
 	public var onRendered: (() -> Void)?
+	public var onPlainTextRendered: MorphMarkdownPlainTextHandler?
 
 	public func apply(configuration: MorphMarkdownConfiguration) {
 		let nextWidth = Self.validViewportWidth(configuration.viewportWidth)
@@ -87,6 +88,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 		renderer.onLinkClick = configuration.onLinkClick
 		renderer.viewportWidthOverride = nextWidth
 		onRendered = configuration.onRendered
+		onPlainTextRendered = configuration.onPlainTextRendered
 		onContentLongPress = configuration.onContentLongPress
 		if requiresRender {
 			renderSnapshot(autoScroll: false)
@@ -191,6 +193,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 		renderer.reset(parent: body)
 		invalidateIntrinsicContentSize()
 		onRendered?()
+		onPlainTextRendered?("")
 	}
 
 	public func renderSnapshot(autoScroll: Bool = false, reuseStablePrefix: Bool = false) {
@@ -226,6 +229,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 			scrollToBottom()
 		}
 		onRendered?()
+		onPlainTextRendered?(renderer.renderedPlainText)
 		if hasProgressiveTail {
 			scheduleProgressiveRender(autoScrollWhenComplete: autoScroll)
 		}

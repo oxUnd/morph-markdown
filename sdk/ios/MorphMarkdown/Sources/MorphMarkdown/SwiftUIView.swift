@@ -9,6 +9,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 	private let imageLoader: MorphImageLoader
 	private let viewportWidth: CGFloat?
 	private let onRendered: (() -> Void)?
+	private let onPlainTextRendered: MorphMarkdownPlainTextHandler?
 	private let onLinkClick: MorphMarkdownLinkHandler?
 	private let options: MorphMarkdownOptions
 	private let layoutMode: MorphMarkdownLayoutMode
@@ -24,6 +25,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		options: MorphMarkdownOptions = MorphMarkdownOptions(),
 		layoutMode: MorphMarkdownLayoutMode = .intrinsicHeight,
 		onRendered: (() -> Void)? = nil,
+		onPlainTextRendered: MorphMarkdownPlainTextHandler? = nil,
 		onLinkClick: MorphMarkdownLinkHandler? = nil,
 		onContentLongPress: MorphMarkdownContentLongPressHandler? = nil
 	) {
@@ -36,6 +38,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 		self.options = options
 		self.layoutMode = layoutMode
 		self.onRendered = onRendered
+		self.onPlainTextRendered = onPlainTextRendered
 		self.onLinkClick = onLinkClick
 		self.onContentLongPress = onContentLongPress
 	}
@@ -60,6 +63,7 @@ public struct MorphMarkdownView: UIViewRepresentable {
 			mathRenderer: mathRenderer,
 			imageLoader: imageLoader,
 			onRendered: onRendered,
+			onPlainTextRendered: onPlainTextRendered,
 			onLinkClick: onLinkClick,
 			onContentLongPress: onContentLongPress
 		)

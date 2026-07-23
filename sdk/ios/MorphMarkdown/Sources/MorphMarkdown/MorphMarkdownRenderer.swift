@@ -18,6 +18,7 @@ final class MorphMarkdownRenderer {
 	var imageLoader: MorphImageLoader = FileImageLoader()
 	var viewportWidthOverride: CGFloat?
 	var onLinkClick: MorphMarkdownLinkHandler?
+	private(set) var renderedPlainText = ""
 	private var renderedBlocks: [RenderedBlock] = []
 	private var progressiveNodes: [MarkdownNode] = []
 	private var progressiveIndex = 0
@@ -25,6 +26,7 @@ final class MorphMarkdownRenderer {
 	func reset(parent: UIStackView) {
 		parent.removeAllArrangedSubviews()
 		renderedBlocks = []
+		renderedPlainText = ""
 		cancelProgressiveRender()
 	}
 
@@ -36,6 +38,7 @@ final class MorphMarkdownRenderer {
 			parent.addArrangedSubview(configuredLabel("snapshot failed", size: theme.bodyTextSize, theme: theme))
 			return
 		}
+		renderedPlainText = root.renderedPlainText
 		renderedBlocks = renderChildren(root.children, from: 0, parent: parent)
 	}
 
@@ -46,6 +49,7 @@ final class MorphMarkdownRenderer {
 			parent.addArrangedSubview(configuredLabel("snapshot failed", size: theme.bodyTextSize, theme: theme))
 			return false
 		}
+		renderedPlainText = root.renderedPlainText
 		progressiveNodes = root.children
 		progressiveIndex = min(max(0, initialBlockCount), progressiveNodes.count)
 		renderedBlocks = renderChildren(progressiveNodes, from: 0, to: progressiveIndex, parent: parent)
@@ -98,6 +102,7 @@ final class MorphMarkdownRenderer {
 			render(json: json, parent: parent)
 			return false
 		}
+		renderedPlainText = root.renderedPlainText
 		let signatures = root.children.map(blockSignature)
 		let limit = min(renderedBlocks.count, signatures.count, max(0, stableBlockCount))
 		var blockPrefix = 0

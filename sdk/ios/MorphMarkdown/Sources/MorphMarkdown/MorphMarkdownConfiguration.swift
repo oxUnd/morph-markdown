@@ -8,6 +8,7 @@ public enum MorphMarkdownLayoutMode: Equatable {
 }
 
 public typealias MorphMarkdownContentLongPressHandler = (_ point: CGPoint) -> Bool
+public typealias MorphMarkdownPlainTextHandler = (_ text: String) -> Void
 
 public struct MorphMarkdownConfiguration {
 	public var theme: MorphMarkdownTheme
@@ -17,6 +18,7 @@ public struct MorphMarkdownConfiguration {
 	public var mathRenderer: MorphMathRenderer?
 	public var imageLoader: MorphImageLoader
 	public var onRendered: (() -> Void)?
+	public var onPlainTextRendered: MorphMarkdownPlainTextHandler?
 	public var onLinkClick: MorphMarkdownLinkHandler?
 	public var onContentLongPress: MorphMarkdownContentLongPressHandler?
 
@@ -28,6 +30,7 @@ public struct MorphMarkdownConfiguration {
 		mathRenderer: MorphMathRenderer? = MathJaxMathRenderer.bundled,
 		imageLoader: MorphImageLoader = FileImageLoader.shared,
 		onRendered: (() -> Void)? = nil,
+		onPlainTextRendered: MorphMarkdownPlainTextHandler? = nil,
 		onLinkClick: MorphMarkdownLinkHandler? = nil,
 		onContentLongPress: MorphMarkdownContentLongPressHandler? = nil
 	) {
@@ -38,6 +41,7 @@ public struct MorphMarkdownConfiguration {
 		self.mathRenderer = mathRenderer
 		self.imageLoader = imageLoader
 		self.onRendered = onRendered
+		self.onPlainTextRendered = onPlainTextRendered
 		self.onLinkClick = onLinkClick
 		self.onContentLongPress = onContentLongPress
 	}

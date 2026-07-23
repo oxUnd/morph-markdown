@@ -38,6 +38,36 @@ final class NativeEngineTests: XCTestCase {
 		XCTAssertEqual(links[1].plainText, "https://autolink.example")
 	}
 
+	func testRenderedPlainTextFollowsRenderedBlockStructure() throws {
+		let root = try snapshotNode("""
+		# Heading
+
+		Paragraph with **bold** and [Morph](https://example.com).
+
+		- first
+		- second
+
+		| Name | Value |
+		| --- | --- |
+		| A | 1 |
+
+		```swift
+		let value = 1
+		```
+		""")
+
+		let text = root.renderedPlainText
+		XCTAssertTrue(text.contains("Heading"))
+		XCTAssertTrue(text.contains("Paragraph with bold and Morph."))
+		XCTAssertTrue(text.contains("• first\n• second"))
+		XCTAssertTrue(text.contains("Name\tValue"), text)
+		XCTAssertTrue(text.contains("A\t1"), text)
+		XCTAssertTrue(text.contains("let value = 1"))
+		XCTAssertFalse(text.contains("**"))
+		XCTAssertFalse(text.contains("https://example.com"))
+		XCTAssertFalse(text.contains("```"))
+	}
+
 	private func snapshotNode(_ markdown: String) throws -> MarkdownNode {
 		guard let engine = MorphMarkdownEngine() else {
 			throw XCTSkip("native engine unavailable")
