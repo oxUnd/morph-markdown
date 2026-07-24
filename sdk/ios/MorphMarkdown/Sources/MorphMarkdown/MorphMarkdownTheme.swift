@@ -71,7 +71,9 @@ public struct MorphMarkdownTheme: Equatable {
 	public var paragraphBottomSpacing: CGFloat = 10
 	public var bodyLineHeightMultiplier: CGFloat = 1.18
 	public var tabSize: Int = 4
-	public var listIndent: CGFloat = 20
+	/// Additional leading inset applied to top-level list rows only.
+	public var listIndent: CGFloat = 0
+	/// Additional leading inset applied once for each nested list level.
 	public var nestedListIndent: CGFloat = 12
 	public var listMarkerWidth: CGFloat = 22
 	public var listMarkerSize: CGFloat = 6
@@ -157,7 +159,7 @@ public enum MorphMarkdownThemes {
 		theme.paragraphTopSpacing = 8
 		theme.paragraphBottomSpacing = 20
 		theme.bodyLineHeightMultiplier = 1.5
-		theme.listIndent = 32
+		theme.listIndent = 0
 		theme.nestedListIndent = 10
 		theme.codeBlockTextSize = 14
 		theme.inlineCodeTextSize = 14

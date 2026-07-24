@@ -1,6 +1,12 @@
 import CoreGraphics
 import Foundation
 
+enum ListIndentPolicy {
+	static func rowIndent(depth: Int, topLevelIndent: CGFloat) -> CGFloat {
+		return depth == 0 ? topLevelIndent : 0
+	}
+}
+
 struct InlineItemSize: Equatable {
 	let width: CGFloat
 	let height: CGFloat

@@ -48,7 +48,9 @@ data class MorphMarkdownTheme(
 	val paragraphBottomSpacingDp: Int = 10,
 	val bodyLineHeightMultiplier: Float = 1.18f,
 	val tabSize: Int = 4,
-	val listIndentDp: Int = 20,
+	/** Additional leading inset applied to top-level list rows only. */
+	val listIndentDp: Int = 0,
+	/** Additional leading inset applied once for each nested list level. */
 	val nestedListIndentDp: Int = 12,
 	val listMarkerWidthDp: Int = 22,
 	val listMarkerSizeDp: Int = 6,
@@ -127,7 +129,7 @@ object MorphMarkdownThemes {
 		paragraphTopSpacingDp = 8,
 		paragraphBottomSpacingDp = 20,
 		bodyLineHeightMultiplier = 1.5f,
-		listIndentDp = 32,
+		listIndentDp = 0,
 		nestedListIndentDp = 10,
 		listItemSpacingDp = 2,
 		codeBlockTextSizeSp = 14f,

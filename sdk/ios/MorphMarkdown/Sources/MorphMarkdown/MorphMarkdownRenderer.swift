@@ -236,7 +236,7 @@ final class MorphMarkdownRenderer {
 		var number = node.start ?? 1
 		for item in node.children {
 			if item.kind == "tasklist" {
-				parent.addArrangedSubview(taskItem(item))
+				parent.addArrangedSubview(taskItem(item, depth: depth))
 			} else {
 				parent.addArrangedSubview(listItem(item, ordered: ordered, number: number, depth: depth))
 				if ordered {
@@ -247,7 +247,7 @@ final class MorphMarkdownRenderer {
 	}
 
 	private func listItem(_ item: MarkdownNode, ordered: Bool, number: Int, depth: Int) -> UIView {
-		let row = horizontalRow()
+		let row = horizontalRow(depth: depth)
 		row.addArrangedSubview(ordered ? orderedMarker(number) : unorderedMarker(depth))
 		row.addArrangedSubview(listItemContent(item, depth: depth))
 		return row
@@ -266,12 +266,13 @@ final class MorphMarkdownRenderer {
 		return group
 	}
 
-	private func horizontalRow() -> UIStackView {
+	private func horizontalRow(depth: Int) -> UIStackView {
 		let row = UIStackView()
 		row.axis = .horizontal
 		row.alignment = .top
 		row.spacing = 0
-		row.layoutMargins = UIEdgeInsets(top: 0, left: theme.listIndent,
+		row.layoutMargins = UIEdgeInsets(top: 0,
+						 left: ListIndentPolicy.rowIndent(depth: depth, topLevelIndent: theme.listIndent),
 						 bottom: theme.listItemSpacing, right: 0)
 		row.isLayoutMarginsRelativeArrangement = true
 		return row
@@ -292,8 +293,8 @@ final class MorphMarkdownRenderer {
 		return marker
 	}
 
-	private func taskItem(_ item: MarkdownNode) -> UIView {
-		let row = horizontalRow()
+	private func taskItem(_ item: MarkdownNode, depth: Int) -> UIView {
+		let row = horizontalRow(depth: depth)
 		let marker = TaskMarkerView(checked: item.checked ?? false, theme: theme)
 		marker.widthAnchor.constraint(equalToConstant: theme.taskBoxSize).isActive = true
 		marker.heightAnchor.constraint(equalToConstant: theme.taskBoxSize).isActive = true

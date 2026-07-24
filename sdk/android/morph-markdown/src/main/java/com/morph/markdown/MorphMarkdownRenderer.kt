@@ -186,7 +186,7 @@ class MorphMarkdownRenderer(
 		for (i in 0 until children.length()) {
 			val item = children.getJSONObject(i)
 			if (item.optString("kind") == "tasklist") {
-				parent.addView(taskItem(item))
+				parent.addView(taskItem(item, depth))
 			} else {
 				parent.addView(listItem(item, ordered, number, depth))
 				if (ordered) number += 1
@@ -195,7 +195,7 @@ class MorphMarkdownRenderer(
 	}
 
 	private fun listItem(item: JSONObject, ordered: Boolean, number: Int, depth: Int): LinearLayout {
-		val row = listRow()
+		val row = listRow(depth)
 		row.addView(listMarker(ordered, number, depth))
 		row.addView(listItemContent(item, depth))
 		return row
@@ -222,12 +222,12 @@ class MorphMarkdownRenderer(
 		}
 	}
 
-	private fun listRow(): LinearLayout {
+	private fun listRow(depth: Int): LinearLayout {
 		return LinearLayout(context).apply {
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.TOP
 			setPadding(
-				context.dp(theme.listIndentDp),
+				context.dp(ListIndentPolicy.rowIndent(depth, theme.listIndentDp)),
 				0,
 				0,
 				context.dp(theme.listItemSpacingDp)
@@ -252,12 +252,12 @@ class MorphMarkdownRenderer(
 		return theme.unorderedListMarkers[depth % theme.unorderedListMarkers.size]
 	}
 
-	private fun taskItem(item: JSONObject): LinearLayout {
+	private fun taskItem(item: JSONObject, depth: Int): LinearLayout {
 		val row = LinearLayout(context).apply {
 			orientation = LinearLayout.HORIZONTAL
 			gravity = Gravity.TOP
 			setPadding(
-				context.dp(theme.listIndentDp),
+				context.dp(ListIndentPolicy.rowIndent(depth, theme.listIndentDp)),
 				0,
 				0,
 				context.dp(theme.listItemSpacingDp)
