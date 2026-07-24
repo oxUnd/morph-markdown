@@ -1,6 +1,5 @@
 plugins {
 	id("com.android.library")
-	id("org.jetbrains.kotlin.android")
 }
 
 val repoDir = projectDir.resolve("../../..").normalize()
@@ -14,6 +13,7 @@ check(mathJaxFontsDir.resolve("STIXTwoMath-Regular.ttf").isFile) {
 android {
 	namespace = "com.morph.markdown"
 	compileSdk = 36
+	ndkVersion = "25.2.9519653"
 
 	defaultConfig {
 		minSdk = 26
@@ -40,17 +40,13 @@ android {
 
 	sourceSets {
 		getByName("main") {
-			assets.srcDir(mathJaxFontsDir)
+			assets.directories.add(mathJaxFontsDir.absolutePath)
 		}
 	}
 
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
-	}
-
-	kotlinOptions {
-		jvmTarget = "17"
 	}
 }
 

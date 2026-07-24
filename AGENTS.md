@@ -86,20 +86,20 @@ From `demo/android/`:
 ```sh
 ../../scripts/prepare-third-party.sh
 ../../sdk/android/morph-markdown/scripts/prepare-android-deps.sh
-gradle :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
+./gradlew :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
 When MathJax-C or native code changes, force a native rebuild:
 
 ```sh
-gradle --stop
-gradle clean :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
+./gradlew --stop
+./gradlew clean :morph-markdown:testDebugUnitTest :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
 Install and launch Android demo:
 
 ```sh
-gradle :app:installDebug --console=plain --quiet
+./gradlew :app:installDebug --console=plain --quiet
 adb -s emulator-5554 shell am force-stop com.morph.markdown.demo
 adb -s emulator-5554 shell am start -n com.morph.markdown.demo/.MainActivity
 ```

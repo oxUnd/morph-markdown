@@ -17,14 +17,11 @@ cd ../..
 ./scripts/prepare-third-party.sh
 ./sdk/android/morph-markdown/scripts/prepare-android-deps.sh
 cd demo/android
-gradle :morph-markdown:assembleDebug :app:assembleDebug
+./gradlew :morph-markdown:assembleDebug :app:assembleDebug
 ```
 
-If your shell does not have `gradle`, reuse any Gradle wrapper:
-
-```sh
-/path/to/gradlew :morph-markdown:assembleDebug :app:assembleDebug
-```
+The checked-in wrapper pins Gradle 9.6.1, so a system Gradle installation is
+not required.
 
 The demo expects Android FreeType and HarfBuzz libraries. By default CMake
 looks for them in:
@@ -36,6 +33,6 @@ sdk/android/morph-markdown/.build/vendor-android/<abi>
 Override with:
 
 ```sh
-gradle :app:assembleDebug \
+./gradlew :app:assembleDebug \
   -Pandroid.injected.cmake.arguments=-DMORPH_MATHJAX_ANDROID_PREFIX=/path/to/prefix
 ```
