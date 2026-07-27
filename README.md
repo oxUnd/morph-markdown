@@ -92,8 +92,10 @@ Run inside Kitty or a terminal compatible with Kitty graphics protocol:
 ./build/demo/kitty/morph-md-kitty-demo
 ```
 
-The demo simulates streamed model chunks, clears and redraws the Markdown view,
-and renders LaTeX through `.third_party/mathjax-c` with Kitty graphics protocol.
+The demo simulates streamed model chunks, appends stable Markdown at the
+current cursor position, and renders LaTeX through `.third_party/mathjax-c`
+with Kitty graphics protocol. Existing terminal scrollback remains intact
+while only the mutable tail is refreshed.
 Formula font size follows the current terminal cell height by default, so
 inline math matches Kitty's body text size instead of using a hardcoded display
 size.

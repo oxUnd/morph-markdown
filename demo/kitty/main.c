@@ -29,29 +29,6 @@ static int has_argument(int argc, char **argv, const char *argument)
 	return 0;
 }
 
-static int render_frame(struct morph_md_kitty *renderer,
-			size_t chunk_index, size_t chunk_count)
-{
-	char status[64];
-	int rc;
-	int end_rc;
-	int frame_started;
-	int length;
-
-	rc = morph_md_kitty_begin_frame(renderer);
-	frame_started = rc == 0;
-	if (rc == 0)
-		rc = morph_md_kitty_clear(renderer);
-	length = snprintf(status, sizeof(status), "chunk %zu/%zu\n\n",
-			  chunk_index + 1u, chunk_count);
-	if (rc == 0 && length > 0)
-		rc = morph_md_kitty_write_text(renderer, status, (size_t)length);
-	if (rc == 0)
-		rc = morph_md_kitty_render(renderer);
-	end_rc = frame_started ? morph_md_kitty_end_frame(renderer) : rc;
-	return rc == 0 ? end_rc : rc;
-}
-
 int main(int argc, char **argv)
 {
 	struct morph_md_kitty_options options;
@@ -90,7 +67,7 @@ int main(int argc, char **argv)
 					   i + 1u == chunk_count);
 		if (rc != 0)
 			break;
-		rc = render_frame(renderer, i, chunk_count);
+		rc = morph_md_kitty_render(renderer);
 		if (rc != 0)
 			break;
 		pause_between_chunks(animate);

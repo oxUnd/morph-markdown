@@ -40,6 +40,11 @@ static void capture_media(const char *type, const char *path, void *user_data)
 	capture->count++;
 }
 
+static void capture_reset(struct capture *capture)
+{
+	memset(capture, 0, sizeof(*capture));
+}
+
 static unsigned int max_kitty_image_height(const char *output)
 {
 	const char *command = output;
@@ -120,6 +125,96 @@ static void test_clear_sequence(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_incremental_render_preserves_scrollback(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 40u;
+	options.terminal_rows = 12u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+
+	assert(morph_md_kitty_append(renderer, "first", 5u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len == 0u);
+
+	assert(morph_md_kitty_append(renderer, " line\n", 6u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "first line") != NULL);
+	assert(strstr(output.bytes, "\033[H") == NULL);
+	assert(strstr(output.bytes, "\033[2J") == NULL);
+
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, "second line\n", 12u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "second line") != NULL);
+	assert(strstr(output.bytes, "first line") == NULL);
+	assert(strstr(output.bytes, "\033[H") == NULL);
+	assert(strstr(output.bytes, "\033[2J") == NULL);
+
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, NULL, 0u, 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "first line") == NULL);
+	assert(strstr(output.bytes, "\033[H") == NULL);
+	assert(strstr(output.bytes, "\033[2J") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_streaming_table_stays_in_live_tail(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 60u;
+	options.terminal_rows = 24u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+
+	assert(morph_md_kitty_append(renderer, "| a | b |\n", 10u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, "|---|---|\n", 10u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "\033[") != NULL);
+	assert(strstr(output.bytes, "┌") != NULL);
+	assert(strstr(output.bytes, "\033[H") == NULL);
+	assert(strstr(output.bytes, "\033[2J") == NULL);
+
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, "| 1 | 2 |\n", 10u, 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "│ 1   │ 2") != NULL);
+	assert(strstr(output.bytes, "\033[H") == NULL);
+	assert(strstr(output.bytes, "\033[2J") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
 static void test_content_padding_and_wrapping(void)
 {
 	struct morph_md_kitty_options options;
@@ -144,7 +239,8 @@ static void test_content_padding_and_wrapping(void)
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
 	assert(strcmp(output.bytes,
-		      "\n  alpha beta \n  gamma\n\n\n\n") == 0);
+		      "\033[?2026h\n  alpha beta \n  gamma\n\n\n\n"
+		      "\033[?2026l") == 0);
 	morph_md_kitty_destroy(renderer);
 }
 
@@ -167,7 +263,7 @@ static void test_heading_underline_excludes_left_padding(void)
 	assert(morph_md_kitty_render(renderer) == 0);
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
-	assert(strncmp(output.bytes, "    \033[1;4;38;5;81mTitle", 25u) == 0);
+	assert(strstr(output.bytes, "    \033[1;4;38;5;81mTitle") != NULL);
 	morph_md_kitty_destroy(renderer);
 }
 
@@ -237,13 +333,57 @@ static void test_math_uses_native_size_kitty_transfer(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_streaming_math_deletes_only_live_placements(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *first =
+		"| formula | value |\n"
+		"|---|---|\n"
+		"| $x^2$ | one |\n";
+	const char *second = "| $y^2$ | two |\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.font_path = MORPH_TEST_MATH_FONT_PATH;
+	options.features = MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 60u;
+	options.terminal_rows = 24u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(renderer, first, strlen(first), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "\033_Ga=T,f=32,s=") != NULL);
+	assert(strstr(output.bytes, ",i=") != NULL);
+
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, second, strlen(second), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "\033_Ga=d,d=I,i=") != NULL);
+	assert(strstr(output.bytes, "\033_Ga=d,d=A") == NULL);
+	assert(strstr(output.bytes, "\033[H") == NULL);
+	assert(strstr(output.bytes, "\033[2J") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
 int main(void)
 {
 	test_stream_render_and_final();
 	test_clear_sequence();
+	test_incremental_render_preserves_scrollback();
+	test_streaming_table_stays_in_live_tail();
 	test_content_padding_and_wrapping();
 	test_heading_underline_excludes_left_padding();
 	test_media_callback();
 	test_math_uses_native_size_kitty_transfer();
+	test_streaming_math_deletes_only_live_placements();
 	return 0;
 }

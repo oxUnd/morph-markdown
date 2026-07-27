@@ -17,7 +17,8 @@ graphics protocol:
 ./build/demo/kitty/morph-md-kitty-demo
 ```
 
-The demo appends the fixture in chunks and redraws the current document after
-each append. It uses one row of vertical padding and four columns of horizontal
-padding by default. Pass `--no-delay` to disable animation or `--no-padding` to
-compare the unpadded layout; the flags can be combined in any order.
+The demo appends the fixture in chunks. Stable Markdown rows remain in terminal
+scrollback while only the current mutable tail is refreshed. It uses one row of
+vertical padding and four columns of horizontal padding by default. Pass
+`--no-delay` to disable animation or `--no-padding` to compare the unpadded
+layout; the flags can be combined in any order.

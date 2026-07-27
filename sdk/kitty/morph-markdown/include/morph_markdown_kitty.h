@@ -35,6 +35,8 @@ struct morph_md_kitty_options {
 	int terminal_fd;
 	/* Zero queries terminal_fd and falls back to 80 columns. */
 	unsigned int terminal_columns;
+	/* Zero queries terminal_fd and falls back to 24 rows. */
+	unsigned int terminal_rows;
 	/* Content padding uses terminal rows and columns, not pixels. */
 	unsigned int content_padding_top_rows;
 	unsigned int content_padding_right_columns;
@@ -52,6 +54,10 @@ int morph_md_kitty_append(struct morph_md_kitty *renderer,
 			  size_t len,
 			  int is_final);
 
+/*
+ * Appends newly stable rendered rows at the current terminal position and
+ * refreshes only the mutable tail. It never clears the viewport implicitly.
+ */
 int morph_md_kitty_render(struct morph_md_kitty *renderer);
 
 /* Writes visible UTF-8 text using the renderer's padding and wrapping state. */
@@ -60,13 +66,16 @@ int morph_md_kitty_write_text(struct morph_md_kitty *renderer,
 			      size_t len);
 
 /*
- * Brackets a complete redraw with synchronized-output mode so supporting
- * terminals publish the frame atomically instead of showing partial updates.
+ * Brackets output with synchronized-output mode so supporting terminals
+ * publish the buffered update atomically.
  */
 int morph_md_kitty_begin_frame(struct morph_md_kitty *renderer);
 int morph_md_kitty_end_frame(struct morph_md_kitty *renderer);
 
-/* Deletes Kitty placements and clears the terminal viewport. */
+/*
+ * Explicitly deletes Kitty placements, clears the terminal viewport and
+ * resets incremental presentation state. The next render paints a snapshot.
+ */
 int morph_md_kitty_clear(struct morph_md_kitty *renderer);
 
 void morph_md_kitty_destroy(struct morph_md_kitty *renderer);

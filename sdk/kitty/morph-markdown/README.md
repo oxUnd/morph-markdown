@@ -29,10 +29,7 @@ options.content_padding_left_columns = 4;
 
 struct morph_md_kitty *renderer = morph_md_kitty_create(&options);
 morph_md_kitty_append(renderer, markdown, strlen(markdown), 1);
-morph_md_kitty_begin_frame(renderer);
-morph_md_kitty_clear(renderer);
 morph_md_kitty_render(renderer);
-morph_md_kitty_end_frame(renderer);
 morph_md_kitty_destroy(renderer);
 ```
 
@@ -54,10 +51,13 @@ Content padding is measured in terminal rows and columns. Right padding reduces
 the width available to normal text wrapping; inline code, native-size formulas
 and tables remain unbreakable and may exceed that boundary.
 
-Wrap complete redraws with `morph_md_kitty_begin_frame` and
-`morph_md_kitty_end_frame`. Supporting terminals hold the previous frame while
-the new text and graphics are produced, which prevents partial redraw flicker.
-The SDK buffers bytes between these calls and submits the completed frame at
-`end_frame`, so MathJax computation time does not consume the terminal's
-synchronized-output timeout. Additional UI text can be composed into the same
-frame with `morph_md_kitty_write_text`.
+Call `morph_md_kitty_render` after each append. Complete rendered rows are
+appended at the current cursor position while only the structurally mutable
+tail is refreshed. Normal streaming does not clear the viewport or discard
+terminal scrollback. `morph_md_kitty_clear` remains available for an explicit
+destructive reset; the next render paints the accumulated snapshot again.
+
+Incremental renders use synchronized output internally. Explicit
+`morph_md_kitty_begin_frame` and `morph_md_kitty_end_frame` calls may still wrap
+multiple SDK operations into one frame. Additional UI text can be composed
+with `morph_md_kitty_write_text`.
