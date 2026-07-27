@@ -65,6 +65,12 @@ void *md_array_get(struct md_array *array, size_t index)
 	return (char *)array->data + index * array->elem_size;
 }
 
+void md_array_pop(struct md_array *array)
+{
+	if (array->len > 0u)
+		array->len--;
+}
+
 void md_array_clear(struct md_array *array)
 {
 	array->len = 0;

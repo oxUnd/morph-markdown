@@ -55,11 +55,22 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 option(MORPH_MARKDOWN_BUILD_TESTS "Build markdown-render tests" ON)
-option(MORPH_MARKDOWN_BUILD_KITTY "Build Kitty terminal renderer demo" ON)
+option(MORPH_MARKDOWN_BUILD_KITTY "Build the Kitty terminal SDK" ON)
+option(MORPH_MARKDOWN_BUILD_KITTY_DEMO "Build the Kitty terminal demo" ON)
+
+if(MORPH_MARKDOWN_BUILD_TESTS)
+	enable_testing()
+endif()
 
 set(MORPH_MATHJAX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.third_party/mathjax-c" CACHE PATH "mathjax-c source")
 
-if(MORPH_MARKDOWN_BUILD_KITTY AND EXISTS "${MORPH_MATHJAX_DIR}/include/mathjax.h")
+if(MORPH_MARKDOWN_BUILD_KITTY AND TARGET mathjax)
+	add_library(morph-mathjax ALIAS mathjax)
+	add_subdirectory(sdk/kitty/morph-markdown)
+	if(MORPH_MARKDOWN_BUILD_KITTY_DEMO)
+		add_subdirectory(demo/kitty)
+	endif()
+elseif(MORPH_MARKDOWN_BUILD_KITTY AND EXISTS "${MORPH_MATHJAX_DIR}/include/mathjax.h")
 	find_package(PkgConfig REQUIRED)
 	pkg_check_modules(FREETYPE REQUIRED freetype2)
 	pkg_check_modules(HARFBUZZ REQUIRED harfbuzz)
@@ -114,39 +125,13 @@ if(MORPH_MARKDOWN_BUILD_KITTY AND EXISTS "${MORPH_MATHJAX_DIR}/include/mathjax.h
 		endif()
 	endif()
 
-	add_library(morph-markdown-kitty STATIC
-		src/terminal/md_kitty.c
-	)
-	target_include_directories(morph-markdown-kitty PUBLIC
-		${CMAKE_CURRENT_SOURCE_DIR}/include
-		${CMAKE_CURRENT_SOURCE_DIR}/src
-		${cmark-gfm_SOURCE_DIR}/src
-		${cmark-gfm_SOURCE_DIR}/extensions
-		${cmark-gfm_BINARY_DIR}/src
-	)
-	target_link_libraries(morph-markdown-kitty PUBLIC
-		morph-markdown-render
-		morph-mathjax
-		libcmark-gfm_static
-		libcmark-gfm-extensions_static
-	)
-
-	add_executable(morph-md-kitty-demo
-		demo/morph_md_kitty_demo.c
-	)
-	target_link_libraries(morph-md-kitty-demo PRIVATE
-		morph-markdown-kitty
-	)
-	target_compile_definitions(morph-md-kitty-demo PRIVATE
-		MORPH_MATHJAX_FONT_PATH="${MORPH_MATHJAX_DIR}/fonts/STIXTwoMath-Regular.ttf"
-	)
-	if(MORPH_MARKDOWN_BUILD_TESTS)
-		add_test(NAME morph_md_kitty_demo_smoke COMMAND morph-md-kitty-demo)
+	add_subdirectory(sdk/kitty/morph-markdown)
+	if(MORPH_MARKDOWN_BUILD_KITTY_DEMO)
+		add_subdirectory(demo/kitty)
 	endif()
 endif()
 
 if(MORPH_MARKDOWN_BUILD_TESTS)
-	enable_testing()
 	find_package(Python3 QUIET COMPONENTS Interpreter)
 
 	add_executable(test_md_engine

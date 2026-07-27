@@ -11,7 +11,9 @@ Small native Markdown streaming core for iOS and Android.
 - `src/md_stream.c` streaming coordinator and cmark-gfm IR conversion.
 - `sdk/android/morph-markdown/` Android View SDK and JNI bridge.
 - `sdk/ios/MorphMarkdown/` SwiftUI SDK surface and IR renderer.
+- `sdk/kitty/morph-markdown/` terminal SDK using the Kitty graphics protocol.
 - `demo/android/` Android app demonstrating SDK integration.
+- `demo/kitty/` streaming terminal demo using the Kitty SDK.
 - `tests/` C tests for streaming, GFM, math toggles, and snapshots.
 
 ## Design
@@ -50,6 +52,9 @@ SDKs render the serialized IR with native views.
   rendering code.
 - iOS SDK exposes a SwiftUI `MorphMarkdownView`, `MorphMarkdownEngine`,
   `MorphMarkdownTheme`, and math/image plugin protocols.
+- Kitty SDK exposes a C streaming renderer with configurable output callbacks;
+  math is emitted as native-size RGBA through the Kitty graphics protocol.
+  Content padding can be configured independently for all four terminal edges.
 - Both SDKs keep math and image rendering pluggable.
 - iOS also exposes `MorphMarkdownUIView` with `.scrollable` and
   `.intrinsicHeight` layout modes. SwiftUI defaults to intrinsic-height mode;
@@ -84,7 +89,7 @@ cmake --build build
 Run inside Kitty or a terminal compatible with Kitty graphics protocol:
 
 ```sh
-./build/morph-md-kitty-demo
+./build/demo/kitty/morph-md-kitty-demo
 ```
 
 The demo simulates streamed model chunks, clears and redraws the Markdown view,
@@ -95,7 +100,7 @@ size.
 The table fixture is chunked by header, separator, and data rows so the terminal
 view shows the table growing row by row as model output streams in.
 The Markdown fixture behind the demo is mirrored in
-`demo/streaming_math.md` for manual inspection and future mobile migration.
+`demo/kitty/streaming_math.md` for manual inspection.
 
 Functions should stay below 200 lines. Keep new generic data structures in
 `src/base/` instead of embedding local one-off containers in feature files.
