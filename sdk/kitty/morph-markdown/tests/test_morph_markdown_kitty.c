@@ -244,6 +244,65 @@ static void test_content_padding_and_wrapping(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_initial_cursor_column_and_wrapping(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown = "alpha beta gamma";
+
+	memset(&options, 0, sizeof(options));
+	memset(&output, 0, sizeof(output));
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 16u;
+	options.content_padding_right_columns = 3u;
+	options.content_padding_left_columns = 2u;
+	options.initial_cursor_column = 2u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strcmp(output.bytes,
+		      "\033[?2026halpha beta \n  gamma\n\n"
+		      "\033[?2026l") == 0);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_initial_cursor_column_preserves_prefix_on_refresh(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 40u;
+	options.terminal_rows = 12u;
+	options.content_padding_left_columns = 2u;
+	options.initial_cursor_column = 2u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+
+	assert(morph_md_kitty_append(renderer, "first line\n", 11u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, "second line\n", 12u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "\033[3G\033[J") != NULL);
+	assert(strstr(output.bytes, "\033[1A\r\033[J") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
 static void test_heading_underline_excludes_left_padding(void)
 {
 	struct morph_md_kitty_options options;
@@ -381,6 +440,8 @@ int main(void)
 	test_incremental_render_preserves_scrollback();
 	test_streaming_table_stays_in_live_tail();
 	test_content_padding_and_wrapping();
+	test_initial_cursor_column_and_wrapping();
+	test_initial_cursor_column_preserves_prefix_on_refresh();
 	test_heading_underline_excludes_left_padding();
 	test_media_callback();
 	test_math_uses_native_size_kitty_transfer();

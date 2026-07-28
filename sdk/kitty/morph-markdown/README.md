@@ -26,6 +26,7 @@ options.content_padding_top_rows = 1;
 options.content_padding_right_columns = 4;
 options.content_padding_bottom_rows = 1;
 options.content_padding_left_columns = 4;
+options.initial_cursor_column = 0;
 
 struct morph_md_kitty *renderer = morph_md_kitty_create(&options);
 morph_md_kitty_append(renderer, markdown, strlen(markdown), 1);
@@ -50,6 +51,11 @@ without math.
 Content padding is measured in terminal rows and columns. Right padding reduces
 the width available to normal text wrapping; inline code, native-size formulas
 and tables remain unbreakable and may exceed that boundary.
+
+When the caller writes a visible prefix before rendering, set
+`initial_cursor_column` to the cursor column after that prefix. The first
+rendered row continues from that column without adding left padding again;
+subsequent rows use `content_padding_left_columns`.
 
 Call `morph_md_kitty_render` after each append. Complete rendered rows are
 appended at the current cursor position while only the structurally mutable

@@ -42,6 +42,12 @@ struct morph_md_kitty_options {
 	unsigned int content_padding_right_columns;
 	unsigned int content_padding_bottom_rows;
 	unsigned int content_padding_left_columns;
+	/*
+	 * Cursor column before the first rendered row. Use this when a caller
+	 * writes a visible prefix before rendering; continuation rows still use
+	 * content_padding_left_columns.
+	 */
+	unsigned int initial_cursor_column;
 };
 
 struct morph_md_kitty;

@@ -1476,8 +1476,9 @@ static int capture_snapshot(struct morph_md_kitty *renderer,
 	renderer->snapshot_next_image_id = 1u;
 	emit_and_clear_media(renderer, 0);
 	renderer->capturing_snapshot = 1;
-	renderer->content_column = 0u;
-	renderer->line_started = 0;
+	renderer->content_column = renderer->options.initial_cursor_column;
+	renderer->line_started =
+		renderer->options.initial_cursor_column > 0u;
 	for (i = 0u; i < renderer->options.content_padding_top_rows; i++) {
 		rc = renderer_newline(renderer);
 		if (rc != MD_OK)
@@ -1514,9 +1515,20 @@ static int clear_live_tail(struct morph_md_kitty *renderer)
 		rc = renderer_control_printf(
 			renderer, "\033_Ga=d,d=I,i=%u,q=2\033\\", image->id);
 	}
-	if (rc == MD_OK && renderer->live_rows > 0u)
+	if (rc == MD_OK && renderer->live_rows > 0u) {
 		rc = renderer_control_printf(
-			renderer, "\033[%zuA\r\033[J", renderer->live_rows);
+			renderer, "\033[%zuA", renderer->live_rows);
+		if (rc == MD_OK &&
+		    renderer->options.initial_cursor_column > 0u) {
+			rc = renderer_control_printf(
+				renderer, "\033[%uG",
+				renderer->options.initial_cursor_column + 1u);
+		} else if (rc == MD_OK) {
+			rc = renderer_control_puts(renderer, "\r");
+		}
+		if (rc == MD_OK)
+			rc = renderer_control_puts(renderer, "\033[J");
+	}
 	return rc;
 }
 
