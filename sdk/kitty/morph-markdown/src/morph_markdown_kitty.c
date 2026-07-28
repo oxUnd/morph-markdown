@@ -1519,7 +1519,8 @@ static int clear_live_tail(struct morph_md_kitty *renderer)
 		rc = renderer_control_printf(
 			renderer, "\033[%zuA", renderer->live_rows);
 		if (rc == MD_OK &&
-		    renderer->options.initial_cursor_column > 0u) {
+		    renderer->options.initial_cursor_column > 0u &&
+		    renderer->emitted_rows == 0u) {
 			rc = renderer_control_printf(
 				renderer, "\033[%uG",
 				renderer->options.initial_cursor_column + 1u);

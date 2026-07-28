@@ -303,6 +303,39 @@ static void test_initial_cursor_column_preserves_prefix_on_refresh(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_initial_cursor_column_refreshes_later_rows_from_margin(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *first = "stable line\n\nmutable line\n";
+	const char *second = "next line\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 40u;
+	options.terminal_rows = 12u;
+	options.content_padding_left_columns = 2u;
+	options.initial_cursor_column = 2u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+
+	assert(morph_md_kitty_append(renderer, first, strlen(first), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	capture_reset(&output);
+	assert(morph_md_kitty_append(renderer, second, strlen(second), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "\r\033[J") != NULL);
+	assert(strstr(output.bytes, "\033[3G\033[J") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
 static void test_heading_underline_excludes_left_padding(void)
 {
 	struct morph_md_kitty_options options;
@@ -442,6 +475,7 @@ int main(void)
 	test_content_padding_and_wrapping();
 	test_initial_cursor_column_and_wrapping();
 	test_initial_cursor_column_preserves_prefix_on_refresh();
+	test_initial_cursor_column_refreshes_later_rows_from_margin();
 	test_heading_underline_excludes_left_padding();
 	test_media_callback();
 	test_math_uses_native_size_kitty_transfer();
