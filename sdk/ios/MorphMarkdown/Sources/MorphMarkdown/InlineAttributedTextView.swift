@@ -5,6 +5,14 @@ final class InlineAttributedTextView: UITextView, UITextViewDelegate, TableIntri
 	var onLinkClick: MorphMarkdownLinkHandler?
 	var linkTitles: [String: String] = [:]
 	private var measuredLayoutWidth: CGFloat = 0
+	private var measurementCache: [CGFloat: CGSize] = [:]
+	private(set) var measurementComputationCount = 0
+
+	override var attributedText: NSAttributedString! {
+		didSet {
+			measurementCache.removeAll(keepingCapacity: true)
+		}
+	}
 
 	init(contentInsets: UIEdgeInsets) {
 		super.init(frame: .zero, textContainer: nil)
@@ -30,8 +38,17 @@ final class InlineAttributedTextView: UITextView, UITextViewDelegate, TableIntri
 
 	override func sizeThatFits(_ size: CGSize) -> CGSize {
 		let width = size.width > 0 ? size.width : CGFloat.greatestFiniteMagnitude
+		if let cached = measurementCache[width] {
+			return cached
+		}
 		let fit = super.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
-		return CGSize(width: ceil(fit.width), height: ceil(fit.height))
+		let measured = CGSize(width: ceil(fit.width), height: ceil(fit.height))
+		if measurementCache.count >= 4 {
+			measurementCache.removeAll(keepingCapacity: true)
+		}
+		measurementCache[width] = measured
+		measurementComputationCount += 1
+		return measured
 	}
 
 	override var intrinsicContentSize: CGSize {

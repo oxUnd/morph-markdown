@@ -14,13 +14,26 @@ final class MarkdownTableView: UIView {
 	}
 
 	private let theme: MorphMarkdownTheme
+	private struct Measurement {
+		let size: CGSize
+		let columnWidths: [CGFloat]
+		let rowHeights: [CGFloat]
+	}
 	private var cells: [Cell] = []
 	private var rowHeaders: [Bool] = []
 	private var columnWidths: [CGFloat] = []
 	private var rowHeights: [CGFloat] = []
+	private var measurementCache: [Int: Measurement] = [:]
+	private(set) var measurementComputationCount = 0
 	private var currentRow = -1
 	private var currentColumn = 0
-	var viewportWidthHint: CGFloat = 0
+	var viewportWidthHint: CGFloat = 0 {
+		didSet {
+			if viewportWidthHint != oldValue {
+				measurementCache.removeAll(keepingCapacity: true)
+			}
+		}
+	}
 
 	init(theme: MorphMarkdownTheme) {
 		self.theme = theme
@@ -42,17 +55,34 @@ final class MarkdownTableView: UIView {
 		cells.append(Cell(row: currentRow, column: currentColumn, header: rowHeaders[currentRow], view: view))
 		addSubview(view)
 		currentColumn += 1
+		measurementCache.removeAll(keepingCapacity: true)
 		setNeedsLayout()
 	}
 
 	override func sizeThatFits(_ size: CGSize) -> CGSize {
-		resetMeasures()
 		let availableWidth = availableWidth(for: size)
+		let cacheKey = measurementCacheKey(availableWidth)
+		if let cached = measurementCache[cacheKey] {
+			columnWidths = cached.columnWidths
+			rowHeights = cached.rowHeights
+			return cached.size
+		}
+		resetMeasures()
 		let inputs = tableCellWidths()
 		let resolved = resolveColumnWidths(inputs: inputs, availableWidth: availableWidth)
 		let widths = balancedColumnWidths(resolved, inputs: inputs, availableWidth: availableWidth)
 		measureCells(widths: widths)
-		return CGSize(width: columnWidths.reduce(0, +), height: rowHeights.reduce(0, +))
+		let measured = CGSize(width: columnWidths.reduce(0, +), height: rowHeights.reduce(0, +))
+		if measurementCache.count >= 4 {
+			measurementCache.removeAll(keepingCapacity: true)
+		}
+		measurementCache[cacheKey] = Measurement(
+			size: measured,
+			columnWidths: columnWidths,
+			rowHeights: rowHeights
+		)
+		measurementComputationCount += 1
+		return measured
 	}
 
 	override var intrinsicContentSize: CGSize {
@@ -220,6 +250,13 @@ final class MarkdownTableView: UIView {
 			return bounds.width
 		}
 		return UIView.noIntrinsicMetric
+	}
+
+	private func measurementCacheKey(_ width: CGFloat?) -> Int {
+		guard let width else {
+			return .min
+		}
+		return Int((width * 2).rounded())
 	}
 
 	private func offsets(_ values: [CGFloat]) -> [CGFloat] {

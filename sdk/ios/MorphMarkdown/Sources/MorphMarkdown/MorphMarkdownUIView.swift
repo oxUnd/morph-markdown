@@ -9,6 +9,8 @@ public final class MorphMarkdownUIView: UIScrollView {
 	private var scheduledRender: DispatchWorkItem?
 	private var progressiveRender: DispatchWorkItem?
 	private var applyingConfiguration = false
+	private var measurementCache: [Int: CGSize] = [:]
+	private(set) var measurementComputationCount = 0
 	private lazy var contentLongPressRecognizer = UILongPressGestureRecognizer(
 		target: self,
 		action: #selector(handleContentLongPress(_:))
@@ -162,13 +164,28 @@ public final class MorphMarkdownUIView: UIScrollView {
 			return super.sizeThatFits(size)
 		}
 		viewportWidthOverride = width
+		let cacheKey = Int((width * 2).rounded())
+		if let cached = measurementCache[cacheKey] {
+			return cached
+		}
 		let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
 		let fit = body.systemLayoutSizeFitting(
 			target,
 			withHorizontalFittingPriority: .required,
 			verticalFittingPriority: .fittingSizeLevel
 		)
-		return CGSize(width: width, height: ceil(max(1, fit.height)))
+		let measured = CGSize(width: width, height: ceil(max(1, fit.height)))
+		if measurementCache.count >= 4 {
+			measurementCache.removeAll(keepingCapacity: true)
+		}
+		measurementCache[cacheKey] = measured
+		measurementComputationCount += 1
+		return measured
+	}
+
+	public override func invalidateIntrinsicContentSize() {
+		measurementCache.removeAll(keepingCapacity: true)
+		super.invalidateIntrinsicContentSize()
 	}
 
 	public override var intrinsicContentSize: CGSize {
