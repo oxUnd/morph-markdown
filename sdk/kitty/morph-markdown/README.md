@@ -38,6 +38,14 @@ By default output goes to `stdout`. Set `options.write` and `options.user_data`
 to route the UTF-8, ANSI and Kitty protocol byte stream elsewhere. The callback
 must return zero on success.
 
+Fenced code blocks render as a terminal-native panel with a colored language
+label, a subtle left rail and ANSI syntax highlighting.
+The built-in highlighter recognizes C, C++, Java, Python, Rust, Go,
+JavaScript/TypeScript, Ruby, PHP, Swift, Kotlin, Scala, shell, SQL, Lua, Perl,
+Haskell, R, Make, TOML, YAML and JSON, including common aliases such as `js`,
+`ts`, `py`, `rs`, `sh` and `c++`. Unknown or omitted languages remain
+uncolored.
+
 Local PNG images are transmitted directly with the Kitty graphics protocol.
 Block images are scaled down only when necessary to fit the content viewport;
 table images keep their intrinsic cell size and participate in column and row

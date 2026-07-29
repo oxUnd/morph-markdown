@@ -666,6 +666,53 @@ static void test_streaming_math_deletes_only_live_placements(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_fenced_code_uses_syntax_highlighting(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"> quote before code\n\n"
+		"```c\n"
+		"int main(void) { return 42; }\n"
+		"```\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 80u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes,
+		      "quote before code\n\n"
+		      "\033[2;38;5;244m╭─") != NULL);
+	assert(strstr(output.bytes, "quote before code\n\n\n") == NULL);
+	assert(strstr(output.bytes,
+		      "\033[2;38;5;244m╭─"
+		      "\033[1;38;5;75m c "
+		      "\033[2;38;5;244m─") != NULL);
+	assert(strstr(output.bytes,
+		      "\033[2;38;5;244m│\033[0m "
+		      "\033[36mint") != NULL);
+	assert(strstr(output.bytes,
+		      "\033[36mint\033[38;5;250m") != NULL);
+	assert(strstr(output.bytes,
+		      "\033[1;33mreturn\033[38;5;250m") != NULL);
+	assert(strstr(output.bytes, "\033[35m42\033[38;5;250m") != NULL);
+	assert(strstr(output.bytes,
+		      "\033[2;38;5;244m╰") != NULL);
+	assert(strstr(output.bytes, "```c") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
 int main(void)
 {
 	test_stream_render_and_final();
@@ -685,5 +732,6 @@ int main(void)
 	test_local_png_renders_in_blocks_and_tables();
 	test_math_uses_native_size_kitty_transfer();
 	test_streaming_math_deletes_only_live_placements();
+	test_fenced_code_uses_syntax_highlighting();
 	return 0;
 }

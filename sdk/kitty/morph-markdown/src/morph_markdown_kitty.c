@@ -4,12 +4,14 @@
 #include "base/md_error.h"
 #include "base/md_table_layout.h"
 #include "base/md_width.h"
+#include "md_highlight.h"
 #include "md_math_ext.h"
 
 #include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
 #include <mathjax.h>
 
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -204,7 +206,8 @@ static unsigned int terminal_row_count(int fd)
 	return 24u;
 }
 
-static unsigned int content_right_edge(struct morph_md_kitty *renderer)
+static unsigned int content_right_edge(
+	const struct morph_md_kitty *renderer)
 {
 	unsigned int right;
 	unsigned int left;
@@ -1906,6 +1909,192 @@ static int render_heading(struct morph_md_kitty *renderer, cmark_node *node)
 	return rc == MD_OK ? reset_rc : rc;
 }
 
+static int renderer_write_ansi(struct morph_md_kitty *renderer,
+			       const char *text, size_t len)
+{
+	size_t control_end;
+	size_t offset = 0u;
+	size_t plain_start = 0u;
+	int rc = MD_OK;
+
+	while (offset < len) {
+		if ((unsigned char)text[offset] != 0x1bu) {
+			offset++;
+			continue;
+		}
+		rc = renderer_visible_write(renderer, text + plain_start,
+					    offset - plain_start);
+		if (rc != MD_OK)
+			return rc;
+		control_end = offset + 1u;
+		if (control_end < len && text[control_end] == '[') {
+			control_end++;
+			while (control_end < len &&
+			       ((unsigned char)text[control_end] < 0x40u ||
+				(unsigned char)text[control_end] > 0x7eu))
+				control_end++;
+			if (control_end < len)
+				control_end++;
+		}
+		if (control_end == offset + 1u)
+			control_end = control_end < len ? control_end + 1u : len;
+		rc = renderer_write(renderer, text + offset, control_end - offset);
+		if (rc != MD_OK)
+			return rc;
+		offset = control_end;
+		plain_start = offset;
+	}
+	return renderer_visible_write(renderer, text + plain_start,
+				      len - plain_start);
+}
+
+static size_t code_language_len(const char *language)
+{
+	size_t len = 0u;
+
+	if (!language)
+		return 0u;
+	while (language[len] && language[len] != ' ' &&
+	       language[len] != '\t' && language[len] != '\n')
+		len++;
+	return len;
+}
+
+static int highlight_code(const char *language, size_t language_len,
+			  const char *code,
+			  char **highlighted, size_t *highlighted_len)
+{
+	struct morph_md_sbuf output;
+
+	morph_md_sbuf_init(&output, NULL, 0u);
+	morph_md_highlight_code(language ? language : "", language_len,
+				code, strlen(code), &output, NULL, NULL);
+	if (output.len == SIZE_MAX)
+		return MD_ERR_NOMEM;
+	*highlighted = malloc(output.len + 1u);
+	if (!*highlighted)
+		return MD_ERR_NOMEM;
+	*highlighted_len = output.len;
+	morph_md_sbuf_init(&output, *highlighted, output.len + 1u);
+	morph_md_highlight_code(language ? language : "", language_len,
+				code, strlen(code), &output, NULL, NULL);
+	(*highlighted)[output.len] = '\0';
+	*highlighted_len = output.len;
+	return MD_OK;
+}
+
+static unsigned int code_panel_width(
+	const struct morph_md_kitty *renderer)
+{
+	unsigned int left = renderer->options.content_padding_left_columns;
+	unsigned int right_edge = content_right_edge(renderer);
+
+	return right_edge > left ? right_edge - left : 1u;
+}
+
+static int render_code_rule(struct morph_md_kitty *renderer,
+			    const char *language, size_t language_len,
+			    int header)
+{
+	const char *label = language_len > 0u ? language : "code";
+	size_t label_len = language_len > 0u ? language_len : 4u;
+	unsigned int label_width = (unsigned int)md_utf8_display_width_n(
+		label, label_len);
+	unsigned int used = header ? label_width + 4u : 1u;
+	unsigned int width = code_panel_width(renderer);
+	unsigned int i;
+	int rc;
+
+	rc = renderer_control_puts(renderer, "\033[2;38;5;244m");
+	if (rc == MD_OK)
+		rc = renderer_puts(renderer, header ? "╭─" : "╰");
+	if (header && rc == MD_OK)
+		rc = renderer_control_puts(renderer, "\033[1;38;5;75m");
+	if (header && rc == MD_OK)
+		rc = renderer_putc(renderer, ' ');
+	if (header && rc == MD_OK)
+		rc = renderer_visible_write(renderer, label, label_len);
+	if (header && rc == MD_OK)
+		rc = renderer_putc(renderer, ' ');
+	if (rc == MD_OK)
+		rc = renderer_control_puts(renderer, "\033[2;38;5;244m");
+	for (i = used; rc == MD_OK && i < width; i++)
+		rc = renderer_puts(renderer, "─");
+	if (rc == MD_OK)
+		rc = renderer_control_puts(renderer, "\033[0m");
+	if (rc == MD_OK)
+		rc = renderer_putc(renderer, '\n');
+	return rc;
+}
+
+static int render_code_line(struct morph_md_kitty *renderer,
+			    const char *line, size_t len)
+{
+	int rc;
+
+	rc = renderer_control_puts(renderer, "\033[2;38;5;244m");
+	if (rc == MD_OK)
+		rc = renderer_puts(renderer, "│");
+	if (rc == MD_OK)
+		rc = renderer_control_puts(renderer, "\033[0m");
+	if (rc == MD_OK)
+		rc = renderer_putc(renderer, ' ');
+	if (rc == MD_OK)
+		rc = renderer_write_ansi(renderer, line, len);
+	if (rc == MD_OK)
+		rc = renderer_control_puts(renderer, "\033[0m");
+	if (rc == MD_OK)
+		rc = renderer_putc(renderer, '\n');
+	return rc;
+}
+
+static int render_code_body(struct morph_md_kitty *renderer,
+			    const char *highlighted, size_t len)
+{
+	size_t end;
+	size_t offset = 0u;
+	int rc;
+
+	if (len == 0u)
+		return render_code_line(renderer, "", 0u);
+	while (offset < len) {
+		end = offset;
+		while (end < len && highlighted[end] != '\n')
+			end++;
+		rc = render_code_line(renderer, highlighted + offset,
+				      end - offset);
+		if (rc != MD_OK)
+			return rc;
+		offset = end < len ? end + 1u : end;
+	}
+	return MD_OK;
+}
+
+static int render_code_block(struct morph_md_kitty *renderer, cmark_node *node,
+			     const char *literal)
+{
+	const char *language = cmark_node_get_fence_info(node);
+	char *highlighted = NULL;
+	size_t highlighted_len = 0u;
+	size_t language_len = code_language_len(language);
+	int rc;
+
+	renderer->wrap_suppression++;
+	rc = highlight_code(language, language_len, literal,
+			    &highlighted, &highlighted_len);
+	if (rc == MD_OK && renderer->line_started)
+		rc = renderer_putc(renderer, '\n');
+	if (rc == MD_OK)
+		rc = render_code_rule(renderer, language, language_len, 1);
+	if (rc == MD_OK)
+		rc = render_code_body(renderer, highlighted, highlighted_len);
+	if (rc == MD_OK)
+		rc = render_code_rule(renderer, language, language_len, 0);
+	free(highlighted);
+	renderer->wrap_suppression--;
+	return rc;
+}
+
 static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 {
 	const char *literal;
@@ -1966,11 +2155,7 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		return rc;
 	}
 	if (type == CMARK_NODE_CODE_BLOCK && literal) {
-		renderer->wrap_suppression++;
-		rc = renderer_printf(renderer, "\n```%s\n%s```\n",
-				     cmark_node_get_fence_info(node), literal);
-		renderer->wrap_suppression--;
-		return rc;
+		return render_code_block(renderer, node, literal);
 	}
 	if (type == CMARK_NODE_SOFTBREAK || type == CMARK_NODE_LINEBREAK) {
 		return renderer_putc(renderer, '\n');
@@ -1992,13 +2177,15 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		return render_item(renderer, node);
 	if (type == CMARK_NODE_HEADING)
 		return render_heading(renderer, node);
-	if (type == CMARK_NODE_PARAGRAPH || type == CMARK_NODE_BLOCK_QUOTE) {
+	if (type == CMARK_NODE_PARAGRAPH) {
 		rc = render_children(renderer, node);
 		if (rc == MD_OK)
 			rc = renderer_puts(renderer,
 					   renderer->item_depth > 0 ? "\n" : "\n\n");
 		return rc;
 	}
+	if (type == CMARK_NODE_BLOCK_QUOTE)
+		return render_children(renderer, node);
 	if (type == CMARK_NODE_DOCUMENT)
 		return render_children(renderer, node);
 	return render_children(renderer, node);
