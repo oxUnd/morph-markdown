@@ -1,4 +1,5 @@
 #include "morph_markdown_kitty.h"
+#include "morph_kitty_protocol.h"
 #include "base/md_array.h"
 #include "base/md_buf.h"
 #include "base/md_error.h"
@@ -33,6 +34,7 @@ struct table_inline_item {
 	enum table_item_kind kind;
 	char *text;
 	unsigned int width;
+	unsigned int image_id;
 	int rows;
 	mjx_style style;
 };
@@ -40,7 +42,7 @@ struct table_inline_item {
 struct table_line_piece {
 	enum table_item_kind kind;
 	struct md_buf text;
-	const struct table_inline_item *item;
+	struct table_inline_item *item;
 };
 
 struct table_cell_line {
@@ -71,11 +73,6 @@ struct media_ref {
 	char *path;
 };
 
-struct kitty_image_ref {
-	unsigned int id;
-	size_t output_offset;
-};
-
 struct morph_md_kitty {
 	struct morph_md_kitty_options options;
 	struct md_buf markdown;
@@ -83,16 +80,14 @@ struct morph_md_kitty {
 	struct md_buf snapshot_output;
 	struct md_array lists;
 	struct md_array media;
-	struct md_array snapshot_images;
-	struct md_array live_images;
+	struct md_array image_ids;
 	mjx_ctx *math;
 	unsigned int viewport_columns;
 	unsigned int viewport_rows;
 	unsigned int content_column;
-	unsigned int snapshot_next_image_id;
+	size_t snapshot_image_index;
 	size_t committed_source_len;
 	size_t emitted_rows;
-	size_t live_rows;
 	int line_started;
 	int wrap_suppression;
 	int item_depth;
@@ -122,6 +117,62 @@ static int renderer_write(struct morph_md_kitty *renderer,
 	if (renderer->frame_depth > 0)
 		return md_buf_append(&renderer->frame_output, bytes, len);
 	return renderer->options.write(bytes, len, renderer->options.user_data);
+}
+
+static int renderer_control_puts(struct morph_md_kitty *renderer,
+				 const char *text);
+static int renderer_control_printf(struct morph_md_kitty *renderer,
+				   const char *format, ...);
+static unsigned int image_available_columns(
+	const struct morph_md_kitty *renderer);
+
+static int placeholder_write(const char *bytes, size_t len, void *user_data)
+{
+	return renderer_write(user_data, bytes, len);
+}
+
+static int next_snapshot_image_id(struct morph_md_kitty *renderer,
+				  unsigned int *image_id)
+{
+	uint32_t *stored;
+
+	if (renderer->snapshot_image_index < renderer->image_ids.len) {
+		stored = md_array_get(&renderer->image_ids,
+				      renderer->snapshot_image_index);
+	} else {
+		stored = md_array_push(&renderer->image_ids);
+		if (!stored)
+			return MD_ERR_NOMEM;
+		*stored = morph_kitty_image_id_new();
+	}
+	renderer->snapshot_image_index++;
+	*image_id = *stored;
+	return MD_OK;
+}
+
+static int render_placeholder_row(struct morph_md_kitty *renderer,
+				  unsigned int image_id,
+				  unsigned int row,
+				  unsigned int columns)
+{
+	int rc;
+
+	/*
+	 * DECSC/DECRC restores the caller's active SGR attributes as well as the
+	 * cursor. Move right explicitly after restoring so placeholder colors do
+	 * not leak into surrounding Markdown.
+	 */
+	rc = renderer_control_puts(renderer, "\0337");
+	if (rc == MD_OK)
+		rc = morph_kitty_write_placeholder_row(
+			placeholder_write, renderer, image_id, row, columns);
+	if (rc == MD_OK)
+		rc = renderer_control_puts(renderer, "\0338");
+	if (rc == MD_OK)
+		rc = renderer_control_printf(renderer, "\033[%uC", columns);
+	if (rc == MD_OK)
+		renderer->content_column += columns;
+	return rc;
 }
 
 static int is_video_path(const char *path)
@@ -578,10 +629,12 @@ static unsigned char *copy_rgba_pixels(const mjx_buf *buffer,
 }
 
 static int send_kitty_rgba(struct morph_md_kitty *renderer,
-			   const mjx_buf *buffer)
+			   const mjx_buf *buffer,
+			   unsigned int columns,
+			   unsigned int rows,
+			   unsigned int *image_id)
 {
 	const size_t raw_chunk_size = 3072u;
-	struct kitty_image_ref *image;
 	unsigned char *rgba;
 	char encoded[4096];
 	size_t byte_count;
@@ -594,13 +647,11 @@ static int send_kitty_rgba(struct morph_md_kitty *renderer,
 	rgba = copy_rgba_pixels(buffer, &byte_count);
 	if (!rgba)
 		return MD_ERR_NOMEM;
-	image = md_array_push(&renderer->snapshot_images);
-	if (!image) {
+	rc = next_snapshot_image_id(renderer, image_id);
+	if (rc != MD_OK) {
 		free(rgba);
-		return MD_ERR_NOMEM;
+		return rc;
 	}
-	image->id = renderer->snapshot_next_image_id++;
-	image->output_offset = renderer->snapshot_output.len;
 	rc = MD_OK;
 	while (offset < byte_count) {
 		chunk_size = byte_count - offset;
@@ -610,9 +661,10 @@ static int send_kitty_rgba(struct morph_md_kitty *renderer,
 		if (offset == 0u) {
 			rc = renderer_control_printf(
 				renderer,
-				"\033_Ga=T,f=32,s=%u,v=%u,i=%u,C=1,q=2,m=%d;",
+				"\033_Ga=T,f=32,s=%u,v=%u,i=%u,U=1,"
+				"q=2,c=%u,r=%u,m=%d;",
 				mjx_buf_width(buffer), mjx_buf_height(buffer),
-				image->id, more);
+				*image_id, columns, rows, more);
 		} else {
 			rc = renderer_control_printf(renderer, "\033_Gm=%d;", more);
 		}
@@ -633,6 +685,37 @@ struct png_dimensions {
 	unsigned int width;
 	unsigned int height;
 };
+
+static void fit_placeholder_dimensions(unsigned int *columns,
+				       unsigned int *rows,
+				       unsigned int max_columns)
+{
+	double scale = 1.0;
+	double column_scale;
+	double row_scale;
+
+	if (max_columns == 0u ||
+	    max_columns > MORPH_KITTY_PLACEHOLDER_LIMIT)
+		max_columns = MORPH_KITTY_PLACEHOLDER_LIMIT;
+	if (*columns > max_columns) {
+		column_scale = (double)max_columns / *columns;
+		if (column_scale < scale)
+			scale = column_scale;
+	}
+	if (*rows > MORPH_KITTY_PLACEHOLDER_LIMIT) {
+		row_scale = (double)MORPH_KITTY_PLACEHOLDER_LIMIT / *rows;
+		if (row_scale < scale)
+			scale = row_scale;
+	}
+	if (scale < 1.0) {
+		*columns = (unsigned int)((double)*columns * scale + 0.999999);
+		*rows = (unsigned int)((double)*rows * scale + 0.999999);
+	}
+	if (*columns == 0u)
+		*columns = 1u;
+	if (*rows == 0u)
+		*rows = 1u;
+}
 
 static unsigned int png_u32(const unsigned char *bytes)
 {
@@ -721,20 +804,18 @@ static void png_cell_dimensions(struct morph_md_kitty *renderer,
 		*columns = max_columns;
 		*rows = (unsigned int)((scaled + native_columns - 1u) /
 				      native_columns);
-		if (*rows == 0u)
-			*rows = 1u;
-		return;
+	} else {
+		*columns = native_columns;
+		*rows = native_rows;
 	}
-	*columns = native_columns;
-	*rows = native_rows;
+	fit_placeholder_dimensions(columns, rows, max_columns);
 }
 
 static int send_kitty_png_file(struct morph_md_kitty *renderer,
 			       const char *path, unsigned int columns,
-			       unsigned int rows)
+			       unsigned int rows, unsigned int *image_id)
 {
 	const size_t raw_chunk_size = 3072u;
-	struct kitty_image_ref *image;
 	struct stat info;
 	unsigned char raw[3072];
 	char encoded[4096];
@@ -752,13 +833,11 @@ static int send_kitty_png_file(struct morph_md_kitty *renderer,
 	file = fopen(path, "rb");
 	if (!file)
 		return -errno;
-	image = md_array_push(&renderer->snapshot_images);
-	if (!image) {
+	rc = next_snapshot_image_id(renderer, image_id);
+	if (rc != MD_OK) {
 		fclose(file);
-		return MD_ERR_NOMEM;
+		return rc;
 	}
-	image->id = renderer->snapshot_next_image_id++;
-	image->output_offset = renderer->snapshot_output.len;
 	remaining = (size_t)info.st_size;
 	while (remaining > 0u && rc == MD_OK) {
 		chunk_size = remaining < raw_chunk_size ?
@@ -772,8 +851,9 @@ static int send_kitty_png_file(struct morph_md_kitty *renderer,
 		if (first) {
 			rc = renderer_control_printf(
 				renderer,
-				"\033_Ga=T,f=100,i=%u,C=1,q=2,c=%u,r=%u,m=%d;",
-				image->id, columns, rows, more);
+				"\033_Ga=T,f=100,i=%u,U=1,q=2,"
+				"c=%u,r=%u,m=%d;",
+				*image_id, columns, rows, more);
 			first = 0;
 		} else {
 			rc = renderer_control_printf(renderer, "\033_Gm=%d;",
@@ -793,13 +873,20 @@ static int render_png_placement(struct morph_md_kitty *renderer,
 				const char *path, unsigned int columns,
 				unsigned int rows)
 {
+	unsigned int image_id;
+	unsigned int row;
 	int rc;
 
-	rc = send_kitty_png_file(renderer, path, columns, rows);
-	if (rc == MD_OK)
-		rc = renderer_control_printf(renderer, "\033[%uC", columns);
-	if (rc == MD_OK)
-		renderer->content_column += columns;
+	rc = send_kitty_png_file(
+		renderer, path, columns, rows, &image_id);
+	for (row = 0u; rc == MD_OK && row < rows; row++) {
+		rc = renderer_start_content_line(renderer);
+		if (rc == MD_OK)
+			rc = render_placeholder_row(
+				renderer, image_id, row, columns);
+		if (rc == MD_OK && row + 1u < rows)
+			rc = renderer_newline(renderer);
+	}
 	return rc;
 }
 
@@ -853,6 +940,9 @@ static int render_formula(struct morph_md_kitty *renderer,
 {
 	mjx_buf *buf;
 	unsigned int columns;
+	unsigned int rows;
+	unsigned int image_id;
+	unsigned int row;
 	int rc;
 
 	buf = render_formula_buffer(renderer, latex, len, style);
@@ -860,13 +950,31 @@ static int render_formula(struct morph_md_kitty *renderer,
 		return MD_ERR_PARSE;
 
 	columns = formula_columns(renderer, buf);
-	rc = renderer_prepare_width(renderer, columns);
+	rows = formula_rows(renderer, buf);
+	fit_placeholder_dimensions(
+		&columns, &rows, image_available_columns(renderer));
+	if (rows > 1u && renderer->line_started &&
+	    renderer->content_column >
+		    renderer->options.content_padding_left_columns) {
+		rc = renderer_newline(renderer);
+	} else {
+		rc = MD_OK;
+	}
 	if (rc == MD_OK)
-		rc = send_kitty_rgba(renderer, buf);
+		rc = renderer_prepare_width(renderer, columns);
 	if (rc == MD_OK)
-		rc = renderer_control_printf(renderer, "\033[%uC", columns);
-	if (rc == MD_OK)
-		renderer->content_column += columns;
+		rc = send_kitty_rgba(
+			renderer, buf, columns, rows, &image_id);
+	for (row = 0u; rc == MD_OK && row < rows; row++) {
+		rc = renderer_start_content_line(renderer);
+		if (rc == MD_OK)
+			rc = render_placeholder_row(
+				renderer, image_id, row, columns);
+		if (rc == MD_OK && row + 1u < rows)
+			rc = renderer_newline(renderer);
+	}
+	if (rc == MD_OK && rows > 1u)
+		rc = renderer_newline(renderer);
 	mjx_buf_free(buf);
 	return rc;
 }
@@ -950,7 +1058,6 @@ static int render_image_node(struct morph_md_kitty *renderer,
 	char *path;
 	unsigned int columns;
 	unsigned int rows;
-	unsigned int i;
 	int rc;
 
 	path = local_image_path(url);
@@ -969,7 +1076,7 @@ static int render_image_node(struct morph_md_kitty *renderer,
 	}
 	if (rc == MD_OK)
 		rc = render_png_placement(renderer, path, columns, rows);
-	for (i = 0u; rc == MD_OK && i < rows; i++)
+	if (rc == MD_OK)
 		rc = renderer_newline(renderer);
 	free(path);
 	return rc;
@@ -1235,6 +1342,12 @@ static int append_table_math(struct morph_md_kitty *renderer,
 		return MD_ERR_PARSE;
 	item->width = formula_columns(renderer, buffer);
 	item->rows = (int)formula_rows(renderer, buffer);
+	{
+		unsigned int rows = (unsigned int)item->rows;
+
+		fit_placeholder_dimensions(&item->width, &rows, 0u);
+		item->rows = (int)rows;
+	}
 	mjx_buf_free(buffer);
 	return MD_OK;
 }
@@ -1417,7 +1530,7 @@ static int table_line_append_text(struct table_cell_line *line,
 }
 
 static int table_line_append_visual(struct table_cell_line *line,
-				    const struct table_inline_item *item)
+				    struct table_inline_item *item)
 {
 	struct table_line_piece *piece = md_array_push(&line->pieces);
 
@@ -1578,10 +1691,17 @@ static int table_wrap_text_item(struct table_wrap_state *state,
 }
 
 static int table_wrap_atomic_item(struct table_wrap_state *state,
-				  const struct table_inline_item *item)
+				  struct table_inline_item *item)
 {
 	int rc;
 
+	if (item->kind == TABLE_ITEM_MATH ||
+	    item->kind == TABLE_ITEM_IMAGE) {
+		unsigned int rows = (unsigned int)item->rows;
+
+		fit_placeholder_dimensions(&item->width, &rows, state->width);
+		item->rows = (int)rows;
+	}
 	if (state->line->width > 0u &&
 	    state->line->width + state->pending_width + item->width >
 		    state->width) {
@@ -1730,7 +1850,7 @@ static int print_border(struct morph_md_kitty *renderer, const char *left,
 }
 
 static struct table_cell_line *table_cell_physical_line(
-	struct table_cell_text *cell, int physical_row)
+	struct table_cell_text *cell, int physical_row, int *line_row)
 {
 	struct table_cell_line *line;
 	int top = 0;
@@ -1740,17 +1860,51 @@ static struct table_cell_line *table_cell_physical_line(
 		return NULL;
 	for (i = 0u; i < cell->lines.len; i++) {
 		line = md_array_get(&cell->lines, i);
-		if (physical_row == top)
+		if (physical_row >= top &&
+		    physical_row < top + line->height) {
+			*line_row = physical_row - top;
 			return line;
-		if (physical_row < top + line->height)
-			return NULL;
+		}
 		top += line->height;
 	}
 	return NULL;
 }
 
+static int render_table_visual_row(struct morph_md_kitty *renderer,
+				   struct table_inline_item *item,
+				   unsigned int row)
+{
+	mjx_buf *buffer;
+	int rc;
+
+	if (row == 0u) {
+		if (item->kind == TABLE_ITEM_MATH) {
+			buffer = render_formula_buffer(
+				renderer, item->text, strlen(item->text),
+				item->style);
+			if (!buffer)
+				return MD_ERR_PARSE;
+			rc = send_kitty_rgba(
+				renderer, buffer, item->width,
+				(unsigned int)item->rows, &item->image_id);
+			mjx_buf_free(buffer);
+		} else {
+			rc = send_kitty_png_file(
+				renderer, item->text, item->width,
+				(unsigned int)item->rows, &item->image_id);
+		}
+		if (rc != MD_OK)
+			return rc;
+	}
+	if (item->image_id == 0u)
+		return MD_ERR_INVALID;
+	return render_placeholder_row(
+		renderer, item->image_id, row, item->width);
+}
+
 static int render_table_cell_line(struct morph_md_kitty *renderer,
-				  struct table_cell_line *line)
+				  struct table_cell_line *line,
+				  unsigned int line_row)
 {
 	struct table_line_piece *piece;
 	size_t i;
@@ -1760,16 +1914,11 @@ static int render_table_cell_line(struct morph_md_kitty *renderer,
 		return MD_OK;
 	for (i = 0u; rc == MD_OK && i < line->pieces.len; i++) {
 		piece = md_array_get(&line->pieces, i);
-		if (piece->kind == TABLE_ITEM_MATH) {
-			rc = render_formula(
-				renderer, piece->item->text,
-				strlen(piece->item->text), piece->item->style);
-		} else if (piece->kind == TABLE_ITEM_IMAGE) {
-			rc = render_png_placement(
-				renderer, piece->item->text,
-				piece->item->width,
-				(unsigned int)piece->item->rows);
-		} else {
+		if (piece->kind == TABLE_ITEM_MATH ||
+		    piece->kind == TABLE_ITEM_IMAGE) {
+			rc = render_table_visual_row(
+				renderer, piece->item, line_row);
+		} else if (line_row == 0u) {
 			rc = renderer_visible_write(
 				renderer, piece->text.data, piece->text.len);
 		}
@@ -1781,15 +1930,17 @@ static int print_table_cell(struct morph_md_kitty *renderer,
 			    struct table_cell_text *cell, unsigned int width,
 			    int physical_row)
 {
-	struct table_cell_line *line =
-		table_cell_physical_line(cell, physical_row);
+	int line_row = 0;
+	struct table_cell_line *line = table_cell_physical_line(
+		cell, physical_row, &line_row);
 	unsigned int used = line ? line->width : 0u;
 	unsigned int i;
 	int rc;
 
 	rc = renderer_putc(renderer, ' ');
 	if (rc == MD_OK)
-		rc = render_table_cell_line(renderer, line);
+		rc = render_table_cell_line(
+			renderer, line, (unsigned int)line_row);
 	for (i = used; rc == MD_OK && i < width; i++)
 		rc = renderer_putc(renderer, ' ');
 	return rc == MD_OK ? renderer_putc(renderer, ' ') : rc;
@@ -2357,6 +2508,32 @@ static size_t active_source_start(struct morph_md_kitty *renderer,
 	return start;
 }
 
+static size_t completed_block_source_len(const char *source, size_t len)
+{
+	size_t line_start = 0u;
+	size_t stable_end = 0u;
+	size_t i;
+
+	for (i = 0u; i < len; i++) {
+		size_t cursor;
+		int blank = 1;
+
+		if (source[i] != '\n')
+			continue;
+		for (cursor = line_start; cursor < i; cursor++) {
+			if (source[cursor] != ' ' && source[cursor] != '\t' &&
+			    source[cursor] != '\r') {
+				blank = 0;
+				break;
+			}
+		}
+		if (blank)
+			stable_end = i + 1u;
+		line_start = i + 1u;
+	}
+	return stable_end;
+}
+
 static size_t output_row_count(const struct md_buf *output)
 {
 	size_t rows = 0u;
@@ -2398,8 +2575,7 @@ static int capture_snapshot(struct morph_md_kitty *renderer,
 	renderer->snapshot_output.len = 0u;
 	if (renderer->snapshot_output.data)
 		renderer->snapshot_output.data[0] = '\0';
-	renderer->snapshot_images.len = 0u;
-	renderer->snapshot_next_image_id = 1u;
+	renderer->snapshot_image_index = 0u;
 	emit_and_clear_media(renderer, 0);
 	renderer->capturing_snapshot = 1;
 	renderer->content_column = renderer->options.initial_cursor_column;
@@ -2428,53 +2604,6 @@ static int capture_snapshot(struct morph_md_kitty *renderer,
 out:
 	renderer->capturing_snapshot = 0;
 	return rc;
-}
-
-static int clear_live_tail(struct morph_md_kitty *renderer)
-{
-	struct kitty_image_ref *image;
-	size_t i;
-	int rc = MD_OK;
-
-	for (i = 0u; rc == MD_OK && i < renderer->live_images.len; i++) {
-		image = md_array_get(&renderer->live_images, i);
-		rc = renderer_control_printf(
-			renderer, "\033_Ga=d,d=I,i=%u,q=2\033\\", image->id);
-	}
-	if (rc == MD_OK && renderer->live_rows > 0u) {
-		rc = renderer_control_printf(
-			renderer, "\033[%zuA", renderer->live_rows);
-		if (rc == MD_OK &&
-		    renderer->options.initial_cursor_column > 0u &&
-		    renderer->emitted_rows == 0u) {
-			rc = renderer_control_printf(
-				renderer, "\033[%uG",
-				renderer->options.initial_cursor_column + 1u);
-		} else if (rc == MD_OK) {
-			rc = renderer_control_puts(renderer, "\r");
-		}
-		if (rc == MD_OK)
-			rc = renderer_control_puts(renderer, "\033[J");
-	}
-	return rc;
-}
-
-static void remember_live_images(struct morph_md_kitty *renderer,
-				 size_t live_offset)
-{
-	struct kitty_image_ref *source;
-	struct kitty_image_ref *target;
-	size_t i;
-
-	renderer->live_images.len = 0u;
-	for (i = 0u; i < renderer->snapshot_images.len; i++) {
-		source = md_array_get(&renderer->snapshot_images, i);
-		if (source->output_offset < live_offset)
-			continue;
-		target = md_array_push(&renderer->live_images);
-		if (target)
-			*target = *source;
-	}
 }
 
 struct morph_md_kitty *morph_md_kitty_create(
@@ -2520,9 +2649,7 @@ struct morph_md_kitty *morph_md_kitty_create(
 	md_buf_init(&renderer->snapshot_output);
 	md_array_init(&renderer->lists, sizeof(struct list_state));
 	md_array_init(&renderer->media, sizeof(struct media_ref));
-	md_array_init(&renderer->snapshot_images,
-		      sizeof(struct kitty_image_ref));
-	md_array_init(&renderer->live_images, sizeof(struct kitty_image_ref));
+	md_array_init(&renderer->image_ids, sizeof(uint32_t));
 	return renderer;
 }
 
@@ -2544,12 +2671,11 @@ int morph_md_kitty_append(struct morph_md_kitty *renderer,
 int morph_md_kitty_render(struct morph_md_kitty *renderer)
 {
 	size_t source_len;
+	size_t stable_source_len;
 	size_t active_start;
 	size_t total_rows;
 	size_t stable_rows;
-	size_t next_live_rows;
 	size_t emit_offset;
-	size_t live_offset;
 	size_t emit_end;
 	int frame_started;
 	int end_rc;
@@ -2569,12 +2695,16 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 	if (!renderer->finalized &&
 	    source_len == renderer->committed_source_len)
 		return MD_OK;
+	stable_source_len = renderer->finalized ? source_len :
+		completed_block_source_len(renderer->markdown.data, source_len);
 	active_start = renderer->finalized ? source_len :
 		active_source_start(renderer, renderer->markdown.data, source_len);
+	if (active_start < stable_source_len)
+		stable_source_len = active_start;
 	stable_rows = 0u;
-	if (active_start < source_len) {
+	if (stable_source_len > 0u) {
 		rc = capture_snapshot(renderer, renderer->markdown.data,
-				      active_start, 0);
+				      stable_source_len, 0);
 		if (rc != MD_OK)
 			return rc;
 		stable_rows = output_row_count(&renderer->snapshot_output);
@@ -2584,36 +2714,24 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 	if (rc != MD_OK)
 		return rc;
 	total_rows = output_row_count(&renderer->snapshot_output);
-	if (active_start == source_len) {
-		stable_rows = renderer->finalized || total_rows == 0u ?
-			total_rows : total_rows - 1u;
-	}
+	if (renderer->finalized)
+		stable_rows = total_rows;
 	if (stable_rows < renderer->emitted_rows)
 		stable_rows = renderer->emitted_rows;
 	if (stable_rows > total_rows)
 		stable_rows = total_rows;
-	next_live_rows = total_rows - stable_rows;
-	if (!renderer->finalized &&
-	    next_live_rows >= renderer->viewport_rows &&
-	    renderer->live_rows > 0u &&
-	    stable_rows == renderer->emitted_rows) {
-		emit_and_clear_media(renderer, 0);
-		return MD_OK;
-	}
 	emit_offset = output_row_offset(&renderer->snapshot_output,
 					renderer->emitted_rows);
-	live_offset = output_row_offset(&renderer->snapshot_output,
-					stable_rows);
-	emit_end = renderer->snapshot_output.len;
-	if (!renderer->finalized &&
-	    next_live_rows >= renderer->viewport_rows) {
-		emit_end = live_offset;
-		next_live_rows = 0u;
+	emit_end = output_row_offset(
+		&renderer->snapshot_output, stable_rows);
+	if (emit_end <= emit_offset) {
+		renderer->committed_source_len = source_len;
+		renderer->emitted_rows = stable_rows;
+		emit_and_clear_media(renderer, renderer->finalized);
+		return MD_OK;
 	}
 	rc = morph_md_kitty_begin_frame(renderer);
 	frame_started = rc == MD_OK;
-	if (rc == MD_OK)
-		rc = clear_live_tail(renderer);
 	if (rc == MD_OK && emit_end > emit_offset)
 		rc = renderer_write(renderer,
 				    renderer->snapshot_output.data + emit_offset,
@@ -2624,11 +2742,6 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 	if (rc == MD_OK) {
 		renderer->committed_source_len = source_len;
 		renderer->emitted_rows = stable_rows;
-		renderer->live_rows = next_live_rows;
-		remember_live_images(
-			renderer,
-			next_live_rows > 0u ? live_offset :
-			renderer->snapshot_output.len);
 	}
 	emit_and_clear_media(renderer, rc == MD_OK && renderer->finalized);
 	return rc;
@@ -2703,8 +2816,7 @@ int morph_md_kitty_clear(struct morph_md_kitty *renderer)
 		renderer->line_started = 0;
 		renderer->committed_source_len = 0u;
 		renderer->emitted_rows = 0u;
-		renderer->live_rows = 0u;
-		renderer->live_images.len = 0u;
+		renderer->image_ids.len = 0u;
 	}
 	return rc;
 }
@@ -2723,8 +2835,7 @@ void morph_md_kitty_destroy(struct morph_md_kitty *renderer)
 	md_array_cleanup(&renderer->lists);
 	emit_and_clear_media(renderer, 0);
 	md_array_cleanup(&renderer->media);
-	md_array_cleanup(&renderer->snapshot_images);
-	md_array_cleanup(&renderer->live_images);
+	md_array_cleanup(&renderer->image_ids);
 	mjx_free(renderer->math);
 	free(renderer);
 }

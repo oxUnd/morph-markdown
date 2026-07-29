@@ -62,8 +62,9 @@ int morph_md_kitty_append(struct morph_md_kitty *renderer,
 			  int is_final);
 
 /*
- * Appends newly stable rendered rows at the current terminal position and
- * refreshes only the mutable tail. It never clears the viewport implicitly.
+ * Appends only newly stable rendered rows at the current terminal position.
+ * Mutable input remains buffered until it is stable, so normal-screen output
+ * never rewinds or mutates scrollback.
  */
 int morph_md_kitty_render(struct morph_md_kitty *renderer);
 
