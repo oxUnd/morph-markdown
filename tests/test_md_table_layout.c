@@ -75,6 +75,9 @@ static void test_grapheme_widths_are_terminal_safe(void)
 	const char combining[] = "e\xcc\x81";
 	const char emoji[] = "\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb";
 	const char heart[] = "\xe2\x9d\xa4\xef\xb8\x8f";
+	const char ready[] = "\xe2\x9c\x85";
+	const char failed[] = "\xe2\x9d\x8c";
+	const char text_heart[] = "\xe2\x9d\xa4";
 
 	assert(md_utf8_grapheme_len(combining, strlen(combining)) ==
 	       strlen(combining));
@@ -83,6 +86,9 @@ static void test_grapheme_widths_are_terminal_safe(void)
 	assert(md_utf8_display_width(emoji) == 2);
 	assert(md_utf8_grapheme_len(heart, strlen(heart)) == strlen(heart));
 	assert(md_utf8_display_width(heart) == 2);
+	assert(md_utf8_display_width(ready) == 2);
+	assert(md_utf8_display_width(failed) == 2);
+	assert(md_utf8_display_width(text_heart) == 1);
 }
 
 int main(void)

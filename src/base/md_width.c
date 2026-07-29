@@ -52,6 +52,48 @@ static int is_wide(unsigned int cp)
 	       (cp >= 0x1f000u && cp <= 0x1faffu);
 }
 
+struct codepoint_range {
+	unsigned int first;
+	unsigned int last;
+};
+
+static int is_default_emoji(unsigned int cp)
+{
+	static const struct codepoint_range ranges[] = {
+		{ 0x231au, 0x231bu }, { 0x23e9u, 0x23ecu },
+		{ 0x23f0u, 0x23f0u }, { 0x23f3u, 0x23f3u },
+		{ 0x25fdu, 0x25feu }, { 0x2614u, 0x2615u },
+		{ 0x2648u, 0x2653u }, { 0x267fu, 0x267fu },
+		{ 0x2693u, 0x2693u }, { 0x26a1u, 0x26a1u },
+		{ 0x26aau, 0x26abu }, { 0x26bdu, 0x26beu },
+		{ 0x26c4u, 0x26c5u }, { 0x26ceu, 0x26ceu },
+		{ 0x26d4u, 0x26d4u }, { 0x26eau, 0x26eau },
+		{ 0x26f2u, 0x26f3u }, { 0x26f5u, 0x26f5u },
+		{ 0x26fau, 0x26fau }, { 0x26fdu, 0x26fdu },
+		{ 0x2705u, 0x2705u }, { 0x270au, 0x270bu },
+		{ 0x2728u, 0x2728u }, { 0x274cu, 0x274cu },
+		{ 0x274eu, 0x274eu }, { 0x2753u, 0x2755u },
+		{ 0x2757u, 0x2757u }, { 0x2795u, 0x2797u },
+		{ 0x27b0u, 0x27b0u }, { 0x27bfu, 0x27bfu },
+		{ 0x2b1bu, 0x2b1cu }, { 0x2b50u, 0x2b50u },
+		{ 0x2b55u, 0x2b55u }
+	};
+	size_t low = 0u;
+	size_t high = sizeof(ranges) / sizeof(ranges[0]);
+
+	while (low < high) {
+		size_t middle = low + (high - low) / 2u;
+
+		if (cp < ranges[middle].first)
+			high = middle;
+		else if (cp > ranges[middle].last)
+			low = middle + 1u;
+		else
+			return 1;
+	}
+	return cp >= 0x1f000u && cp <= 0x1faffu;
+}
+
 static int is_zero_width(unsigned int cp)
 {
 	return (cp >= 0x0300u && cp <= 0x036fu) ||
@@ -147,7 +189,7 @@ int md_utf8_grapheme_width_n(const char *text, size_t len)
 	while (offset < len) {
 		step = decode_utf8(bytes + offset, len - offset, &cp);
 		if (cp == 0xfe0fu || cp == 0x200du || cp == 0x20e3u ||
-		    (cp >= 0x1f000u && cp <= 0x1faffu))
+		    is_default_emoji(cp))
 			emoji = 1;
 		if (!is_zero_width(cp)) {
 			int current = is_wide(cp) ? 2 : 1;

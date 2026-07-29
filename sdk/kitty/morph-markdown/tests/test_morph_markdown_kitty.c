@@ -345,6 +345,36 @@ static void test_table_code_is_atomic_and_tabs_are_stable(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_table_default_emoji_widths(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"| identity | status |\n"
+		"|---|---|\n"
+		"| Bot | ✅ ready |\n"
+		"| User | ❌ failed |\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 40u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "│ Bot      │ ✅ ready  │") != NULL);
+	assert(strstr(output.bytes, "│ User     │ ❌ failed │") != NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
 static void test_links_show_destination_in_text_and_tables(void)
 {
 	struct morph_md_kitty_options options;
@@ -722,6 +752,7 @@ int main(void)
 	test_table_wraps_to_viewport();
 	test_table_cjk_and_long_word_wrapping();
 	test_table_code_is_atomic_and_tabs_are_stable();
+	test_table_default_emoji_widths();
 	test_links_show_destination_in_text_and_tables();
 	test_content_padding_and_wrapping();
 	test_initial_cursor_column_and_wrapping();
