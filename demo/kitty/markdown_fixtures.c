@@ -42,7 +42,7 @@ const char *const morph_demo_chunks[] = {
 	"| dynamic table growth | ok |\n",
 	"| inline formula $a^2+b^2=c^2$ | rendered in cell |\n",
 	"| tall aligned formula | $\\begin{aligned}\\nabla f(x^*)+A^T\\lambda+B^T\\mu&=0 \\\\ Ax^*-b&=0 \\\\ \\mu_i(Bx^*-c)_i&=0\\end{aligned}$ |\n",
-	"| valid image ![generated](file:///tmp/morph-markdown-generated.png) | image placeholder in terminal |\n",
+	"| valid image ![generated](file:///tmp/morph-markdown-generated.png) | Kitty graphics placement |\n",
 	"| invalid image ![missing](file:///tmp/morph-markdown-missing.png) | error placeholder in terminal |\n",
 	"| code `cell.value()` and [link](https://example.com) | mixed inline |\n",
 	"| tab text | key\tvalue\twith tabs |\n",

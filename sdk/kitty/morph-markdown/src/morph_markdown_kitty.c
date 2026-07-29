@@ -2,6 +2,7 @@
 #include "base/md_array.h"
 #include "base/md_buf.h"
 #include "base/md_error.h"
+#include "base/md_table_layout.h"
 #include "base/md_width.h"
 #include "md_math_ext.h"
 
@@ -15,12 +16,43 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
-struct table_cell_text {
+enum table_item_kind {
+	TABLE_ITEM_TEXT,
+	TABLE_ITEM_CODE,
+	TABLE_ITEM_MATH,
+	TABLE_ITEM_IMAGE,
+	TABLE_ITEM_BREAK
+};
+
+struct table_inline_item {
+	enum table_item_kind kind;
 	char *text;
-	int width;
+	unsigned int width;
 	int rows;
+	mjx_style style;
+};
+
+struct table_line_piece {
+	enum table_item_kind kind;
+	struct md_buf text;
+	const struct table_inline_item *item;
+};
+
+struct table_cell_line {
+	struct md_array pieces;
+	unsigned int width;
+	int height;
+};
+
+struct table_cell_text {
+	struct md_array items;
+	struct md_array lines;
+	unsigned int min_width;
+	unsigned int preferred_width;
+	int height;
 };
 
 struct table_row_text {
@@ -184,25 +216,6 @@ static unsigned int content_right_edge(struct morph_md_kitty *renderer)
 	return left + 1u;
 }
 
-static size_t utf8_sequence_len(const char *bytes, size_t remaining)
-{
-	unsigned char first;
-	size_t length;
-
-	first = (unsigned char)bytes[0];
-	if (first < 0x80u)
-		length = 1u;
-	else if ((first & 0xe0u) == 0xc0u)
-		length = 2u;
-	else if ((first & 0xf0u) == 0xe0u)
-		length = 3u;
-	else if ((first & 0xf8u) == 0xf0u)
-		length = 4u;
-	else
-		length = 1u;
-	return length <= remaining ? length : 1u;
-}
-
 static int renderer_start_content_line(struct morph_md_kitty *renderer)
 {
 	unsigned int i;
@@ -291,7 +304,7 @@ static int renderer_visible_write(struct morph_md_kitty *renderer,
 			}
 			token_offset = 0u;
 			while (token_offset < token_len) {
-				step = utf8_sequence_len(
+				step = md_utf8_grapheme_len(
 					bytes + offset + token_offset,
 					token_len - token_offset);
 				width = md_utf8_display_width_n(
@@ -312,7 +325,7 @@ static int renderer_visible_write(struct morph_md_kitty *renderer,
 			offset += token_len;
 			continue;
 		}
-		step = utf8_sequence_len(bytes + offset, len - offset);
+		step = md_utf8_grapheme_len(bytes + offset, len - offset);
 		width = md_utf8_display_width_n(bytes + offset, step);
 		if (renderer->wrap_suppression == 0 &&
 		    renderer->line_started &&
@@ -613,6 +626,180 @@ static int send_kitty_rgba(struct morph_md_kitty *renderer,
 	return rc;
 }
 
+struct png_dimensions {
+	unsigned int width;
+	unsigned int height;
+};
+
+static unsigned int png_u32(const unsigned char *bytes)
+{
+	return ((unsigned int)bytes[0] << 24u) |
+	       ((unsigned int)bytes[1] << 16u) |
+	       ((unsigned int)bytes[2] << 8u) |
+	       (unsigned int)bytes[3];
+}
+
+static int read_png_dimensions(const char *path,
+			       struct png_dimensions *dimensions)
+{
+	static const unsigned char signature[] = {
+		0x89u, 'P', 'N', 'G', '\r', '\n', 0x1au, '\n'
+	};
+	unsigned char header[24];
+	struct stat info;
+	FILE *file;
+	size_t count;
+
+	if (!path || !dimensions || stat(path, &info) != 0 ||
+	    !S_ISREG(info.st_mode))
+		return MD_ERR_INVALID;
+	file = fopen(path, "rb");
+	if (!file)
+		return -errno;
+	count = fread(header, 1u, sizeof(header), file);
+	fclose(file);
+	if (count != sizeof(header) ||
+	    memcmp(header, signature, sizeof(signature)) != 0 ||
+	    memcmp(header + 12u, "IHDR", 4u) != 0)
+		return MD_ERR_PARSE;
+	dimensions->width = png_u32(header + 16u);
+	dimensions->height = png_u32(header + 20u);
+	return dimensions->width && dimensions->height ?
+		MD_OK : MD_ERR_PARSE;
+}
+
+static char *local_image_path(const char *url)
+{
+	const char *path;
+	const char *suffix;
+	size_t len;
+	char *copy;
+
+	if (!url || !url[0])
+		return NULL;
+	if (strncmp(url, "file://", 7u) == 0)
+		path = url + 7u;
+	else if (!strstr(url, "://"))
+		path = url;
+	else
+		return NULL;
+	suffix = strpbrk(path, "?#");
+	len = suffix ? (size_t)(suffix - path) : strlen(path);
+	copy = malloc(len + 1u);
+	if (!copy)
+		return NULL;
+	memcpy(copy, path, len);
+	copy[len] = '\0';
+	return copy;
+}
+
+static void png_cell_dimensions(struct morph_md_kitty *renderer,
+				const struct png_dimensions *pixels,
+				unsigned int max_columns,
+				unsigned int *columns,
+				unsigned int *rows)
+{
+	struct terminal_cell_size cell = terminal_cell_size(
+		renderer->options.terminal_fd);
+	double column_count = (double)pixels->width / cell.width;
+	double row_count = (double)pixels->height / cell.height;
+	unsigned int native_columns = (unsigned int)column_count;
+	unsigned int native_rows = (unsigned int)row_count;
+
+	if ((double)native_columns < column_count)
+		native_columns++;
+	if ((double)native_rows < row_count)
+		native_rows++;
+	native_columns = native_columns ? native_columns : 1u;
+	native_rows = native_rows ? native_rows : 1u;
+	if (max_columns > 0u && native_columns > max_columns) {
+		uint64_t scaled = (uint64_t)native_rows * max_columns;
+
+		*columns = max_columns;
+		*rows = (unsigned int)((scaled + native_columns - 1u) /
+				      native_columns);
+		if (*rows == 0u)
+			*rows = 1u;
+		return;
+	}
+	*columns = native_columns;
+	*rows = native_rows;
+}
+
+static int send_kitty_png_file(struct morph_md_kitty *renderer,
+			       const char *path, unsigned int columns,
+			       unsigned int rows)
+{
+	const size_t raw_chunk_size = 3072u;
+	struct kitty_image_ref *image;
+	struct stat info;
+	unsigned char raw[3072];
+	char encoded[4096];
+	FILE *file;
+	size_t remaining;
+	size_t chunk_size;
+	size_t encoded_len;
+	int first = 1;
+	int more;
+	int rc = MD_OK;
+
+	if (stat(path, &info) != 0 || !S_ISREG(info.st_mode) ||
+	    info.st_size <= 0)
+		return MD_ERR_INVALID;
+	file = fopen(path, "rb");
+	if (!file)
+		return -errno;
+	image = md_array_push(&renderer->snapshot_images);
+	if (!image) {
+		fclose(file);
+		return MD_ERR_NOMEM;
+	}
+	image->id = renderer->snapshot_next_image_id++;
+	image->output_offset = renderer->snapshot_output.len;
+	remaining = (size_t)info.st_size;
+	while (remaining > 0u && rc == MD_OK) {
+		chunk_size = remaining < raw_chunk_size ?
+			remaining : raw_chunk_size;
+		if (fread(raw, 1u, chunk_size, file) != chunk_size) {
+			rc = -EIO;
+			break;
+		}
+		remaining -= chunk_size;
+		more = remaining > 0u;
+		if (first) {
+			rc = renderer_control_printf(
+				renderer,
+				"\033_Ga=T,f=100,i=%u,C=1,q=2,c=%u,r=%u,m=%d;",
+				image->id, columns, rows, more);
+			first = 0;
+		} else {
+			rc = renderer_control_printf(renderer, "\033_Gm=%d;",
+						     more);
+		}
+		encoded_len = base64_encode(raw, chunk_size, encoded);
+		if (rc == MD_OK)
+			rc = renderer_write(renderer, encoded, encoded_len);
+		if (rc == MD_OK)
+			rc = renderer_control_puts(renderer, "\033\\");
+	}
+	fclose(file);
+	return rc;
+}
+
+static int render_png_placement(struct morph_md_kitty *renderer,
+				const char *path, unsigned int columns,
+				unsigned int rows)
+{
+	int rc;
+
+	rc = send_kitty_png_file(renderer, path, columns, rows);
+	if (rc == MD_OK)
+		rc = renderer_control_printf(renderer, "\033[%uC", columns);
+	if (rc == MD_OK)
+		renderer->content_column += columns;
+	return rc;
+}
+
 static unsigned int formula_columns(struct morph_md_kitty *renderer,
 				    const mjx_buf *buffer)
 {
@@ -681,52 +868,6 @@ static int render_formula(struct morph_md_kitty *renderer,
 	return rc;
 }
 
-static int text_math_metrics(struct morph_md_kitty *renderer,
-			     const char *text, int *out_width, int *out_rows)
-{
-	size_t len = strlen(text);
-	size_t i = 0u;
-	size_t plain_start = 0u;
-	size_t open_len;
-	size_t close_len;
-	size_t close_pos;
-	const char *close;
-	mjx_style style;
-	mjx_buf *buffer;
-	unsigned int rows;
-	int width = 0;
-
-	while (i < len) {
-		if (!((renderer->options.features & MORPH_MD_FEATURE_MATH) != 0u) ||
-		    !is_math_start(text, len, i, &open_len, &close,
-				   &close_len, &style)) {
-			i++;
-			continue;
-		}
-		close_pos = find_close(text, len, i + open_len, close, close_len);
-		if (close_pos >= len) {
-			i++;
-			continue;
-		}
-		width += md_utf8_display_width_n(text + plain_start,
-						 i - plain_start);
-		buffer = render_formula_buffer(renderer, text + i + open_len,
-					       close_pos - i - open_len, style);
-		if (!buffer)
-			return MD_ERR_PARSE;
-		width += (int)formula_columns(renderer, buffer);
-		rows = formula_rows(renderer, buffer);
-		if ((int)rows > *out_rows)
-			*out_rows = (int)rows;
-		mjx_buf_free(buffer);
-		i = close_pos + close_len;
-		plain_start = i;
-	}
-	width += md_utf8_display_width_n(text + plain_start, len - plain_start);
-	*out_width = width;
-	return MD_OK;
-}
-
 static int render_text_with_math(struct morph_md_kitty *renderer,
 				 const char *text)
 {
@@ -747,12 +888,12 @@ static int render_text_with_math(struct morph_md_kitty *renderer,
 		if (!((renderer->options.features & MORPH_MD_FEATURE_MATH) != 0u) ||
 		    !is_math_start(text, len, i, &open_len, &close,
 				   &close_len, &style)) {
-			i += utf8_sequence_len(text + i, len - i);
+			i += md_utf8_grapheme_len(text + i, len - i);
 			continue;
 		}
 		close_pos = find_close(text, len, i + open_len, close, close_len);
 		if (close_pos >= len) {
-			i += utf8_sequence_len(text + i, len - i);
+			i += md_utf8_grapheme_len(text + i, len - i);
 			continue;
 		}
 		rc = renderer_visible_write(renderer, text + plain_start,
@@ -776,54 +917,62 @@ static int render_text_with_math(struct morph_md_kitty *renderer,
 				      len - plain_start);
 }
 
-static int render_node(struct morph_md_kitty *renderer, cmark_node *node);
-
-static int append_plain_text(struct md_buf *out, cmark_node *node)
+static unsigned int image_available_columns(
+	const struct morph_md_kitty *renderer)
 {
-	cmark_node *child;
-	const char *literal;
+	unsigned int left = renderer->options.content_padding_left_columns;
+	unsigned int right = renderer->options.content_padding_right_columns;
+
+	if (renderer->viewport_columns > left + right)
+		return renderer->viewport_columns - left - right;
+	return 1u;
+}
+
+static int render_image_fallback(struct morph_md_kitty *renderer,
+				 const char *url)
+{
 	int rc;
 
-	if (cmark_node_get_type(node) == MORPH_MD_NODE_MATH_INLINE ||
-	    cmark_node_get_type(node) == MORPH_MD_NODE_MATH_BLOCK) {
-		literal = morph_md_math_literal(node);
-		rc = md_buf_puts(out,
-				 cmark_node_get_type(node) == MORPH_MD_NODE_MATH_BLOCK ?
-				 "$$" : "$");
-		if (rc == MD_OK)
-			rc = md_buf_puts(out, literal ? literal : "");
-		if (rc == MD_OK)
-			rc = md_buf_puts(out,
-					 cmark_node_get_type(node) ==
-					 MORPH_MD_NODE_MATH_BLOCK ? "$$" : "$");
-		return rc;
-	}
-	literal = cmark_node_get_literal(node);
-	if (literal) {
-		rc = md_buf_puts(out, literal);
-		if (rc != MD_OK)
-			return rc;
-	}
-	for (child = cmark_node_first_child(node); child;
-	     child = cmark_node_next(child)) {
-		rc = append_plain_text(out, child);
-		if (rc != MD_OK)
-			return rc;
-	}
-	return MD_OK;
+	rc = collect_media(renderer,
+			   is_video_path(url) ? "video" : "image", url);
+	return rc == MD_OK ?
+		renderer_printf(renderer, "[image: %s]", url ? url : "") : rc;
 }
 
-static char *plain_text_dup(cmark_node *node)
+static int render_image_node(struct morph_md_kitty *renderer,
+			     cmark_node *node)
 {
-	struct md_buf out;
+	const char *url = cmark_node_get_url(node);
+	struct png_dimensions pixels;
+	char *path;
+	unsigned int columns;
+	unsigned int rows;
+	unsigned int i;
+	int rc;
 
-	md_buf_init(&out);
-	if (append_plain_text(&out, node) != MD_OK) {
-		md_buf_cleanup(&out);
-		return NULL;
+	path = local_image_path(url);
+	if (!path || read_png_dimensions(path, &pixels) != MD_OK) {
+		free(path);
+		return render_image_fallback(renderer, url);
 	}
-	return md_buf_detach(&out);
+	png_cell_dimensions(renderer, &pixels,
+			    image_available_columns(renderer), &columns, &rows);
+	if (renderer->line_started &&
+	    renderer->content_column >
+		    renderer->options.content_padding_left_columns) {
+		rc = renderer_newline(renderer);
+	} else {
+		rc = renderer_start_content_line(renderer);
+	}
+	if (rc == MD_OK)
+		rc = render_png_placement(renderer, path, columns, rows);
+	for (i = 0u; rc == MD_OK && i < rows; i++)
+		rc = renderer_newline(renderer);
+	free(path);
+	return rc;
 }
+
+static int render_node(struct morph_md_kitty *renderer, cmark_node *node);
 
 static int render_children(struct morph_md_kitty *renderer, cmark_node *node)
 {
@@ -928,6 +1077,36 @@ static int render_task_item(struct morph_md_kitty *renderer, cmark_node *node)
 	return rc;
 }
 
+static void table_line_cleanup(struct table_cell_line *line)
+{
+	struct table_line_piece *piece;
+	size_t i;
+
+	for (i = 0u; i < line->pieces.len; i++) {
+		piece = md_array_get(&line->pieces, i);
+		md_buf_cleanup(&piece->text);
+	}
+	md_array_cleanup(&line->pieces);
+}
+
+static void table_cell_cleanup(struct table_cell_text *cell)
+{
+	struct table_inline_item *item;
+	struct table_cell_line *line;
+	size_t i;
+
+	for (i = 0u; i < cell->items.len; i++) {
+		item = md_array_get(&cell->items, i);
+		free(item->text);
+	}
+	for (i = 0u; i < cell->lines.len; i++) {
+		line = md_array_get(&cell->lines, i);
+		table_line_cleanup(line);
+	}
+	md_array_cleanup(&cell->items);
+	md_array_cleanup(&cell->lines);
+}
+
 static void table_row_cleanup(struct table_row_text *row)
 {
 	struct table_cell_text *cell;
@@ -935,7 +1114,7 @@ static void table_row_cleanup(struct table_row_text *row)
 
 	for (i = 0; i < row->cells.len; i++) {
 		cell = md_array_get(&row->cells, i);
-		free(cell->text);
+		table_cell_cleanup(cell);
 	}
 	md_array_cleanup(&row->cells);
 }
@@ -952,13 +1131,241 @@ static void table_rows_cleanup(struct md_array *rows)
 	md_array_cleanup(rows);
 }
 
-static int collect_table(cmark_node *node, struct md_array *rows,
-			 size_t *col_count)
+static void table_cell_init(struct table_cell_text *cell)
+{
+	md_array_init(&cell->items, sizeof(struct table_inline_item));
+	md_array_init(&cell->lines, sizeof(struct table_cell_line));
+	cell->min_width = 1u;
+	cell->preferred_width = 1u;
+	cell->height = 1;
+}
+
+static int append_table_item(struct table_cell_text *cell,
+			     enum table_item_kind kind, const char *text)
+{
+	struct table_inline_item *item;
+
+	item = md_array_push(&cell->items);
+	if (!item)
+		return MD_ERR_NOMEM;
+	memset(item, 0, sizeof(*item));
+	item->kind = kind;
+	item->rows = 1;
+	if (text) {
+		item->text = strdup(text);
+		if (!item->text)
+			return MD_ERR_NOMEM;
+		item->width = (unsigned int)md_utf8_display_width(item->text);
+	}
+	return MD_OK;
+}
+
+static char *expand_table_tabs(const char *text)
+{
+	struct md_buf out;
+	const char *cursor;
+	int rc = MD_OK;
+
+	md_buf_init(&out);
+	for (cursor = text ? text : ""; rc == MD_OK && *cursor; cursor++) {
+		if (*cursor == '\t')
+			rc = md_buf_puts(&out, "    ");
+		else
+			rc = md_buf_append(&out, cursor, 1u);
+	}
+	if (rc != MD_OK) {
+		md_buf_cleanup(&out);
+		return NULL;
+	}
+	return md_buf_detach(&out);
+}
+
+static int append_table_text(struct table_cell_text *cell, const char *text)
+{
+	char *expanded;
+	int rc;
+
+	expanded = expand_table_tabs(text);
+	if (!expanded)
+		return MD_ERR_NOMEM;
+	rc = append_table_item(cell, TABLE_ITEM_TEXT, expanded);
+	free(expanded);
+	return rc;
+}
+
+static int append_table_link_destination(struct table_cell_text *cell,
+					 const char *url)
+{
+	struct md_buf text;
+	int rc;
+
+	if (!url || !url[0])
+		return MD_OK;
+	md_buf_init(&text);
+	rc = md_buf_printf(&text, " (%s)", url);
+	if (rc == MD_OK)
+		rc = append_table_text(cell, text.data);
+	md_buf_cleanup(&text);
+	return rc;
+}
+
+static int append_table_math(struct morph_md_kitty *renderer,
+			     struct table_cell_text *cell, cmark_node *node)
+{
+	struct table_inline_item *item;
+	const char *literal = morph_md_math_literal(node);
+	mjx_buf *buffer;
+
+	item = md_array_push(&cell->items);
+	if (!item)
+		return MD_ERR_NOMEM;
+	memset(item, 0, sizeof(*item));
+	item->kind = TABLE_ITEM_MATH;
+	item->style = cmark_node_get_type(node) == MORPH_MD_NODE_MATH_BLOCK ?
+		MJX_STYLE_DISPLAY : MJX_STYLE_INLINE;
+	item->text = strdup(literal ? literal : "");
+	if (!item->text)
+		return MD_ERR_NOMEM;
+	buffer = render_formula_buffer(renderer, item->text, strlen(item->text),
+				       item->style);
+	if (!buffer)
+		return MD_ERR_PARSE;
+	item->width = formula_columns(renderer, buffer);
+	item->rows = (int)formula_rows(renderer, buffer);
+	mjx_buf_free(buffer);
+	return MD_OK;
+}
+
+static int append_table_image_fallback(struct morph_md_kitty *renderer,
+				       struct table_cell_text *cell,
+				       const char *url)
+{
+	struct md_buf placeholder;
+	int rc;
+
+	rc = collect_media(renderer,
+			   is_video_path(url) ? "video" : "image", url);
+	if (rc != MD_OK)
+		return rc;
+	md_buf_init(&placeholder);
+	rc = md_buf_printf(&placeholder, "[image: %s]", url ? url : "");
+	if (rc == MD_OK)
+		rc = append_table_text(cell, placeholder.data);
+	md_buf_cleanup(&placeholder);
+	return rc;
+}
+
+static int append_table_image(struct morph_md_kitty *renderer,
+			      struct table_cell_text *cell, cmark_node *node)
+{
+	const char *url = cmark_node_get_url(node);
+	struct table_inline_item *item;
+	struct png_dimensions pixels;
+	char *path = local_image_path(url);
+	unsigned int columns;
+	unsigned int rows;
+
+	if (!path || read_png_dimensions(path, &pixels) != MD_OK) {
+		free(path);
+		return append_table_image_fallback(renderer, cell, url);
+	}
+	item = md_array_push(&cell->items);
+	if (!item) {
+		free(path);
+		return MD_ERR_NOMEM;
+	}
+	memset(item, 0, sizeof(*item));
+	item->kind = TABLE_ITEM_IMAGE;
+	item->text = path;
+	png_cell_dimensions(renderer, &pixels, 0u, &columns, &rows);
+	item->width = columns;
+	item->rows = (int)rows;
+	return MD_OK;
+}
+
+static int collect_cell_items(struct morph_md_kitty *renderer,
+			      cmark_node *node, struct table_cell_text *cell)
+{
+	cmark_node *child;
+	const char *literal;
+	cmark_node_type type = cmark_node_get_type(node);
+	int rc;
+
+	if (type == MORPH_MD_NODE_MATH_INLINE ||
+	    type == MORPH_MD_NODE_MATH_BLOCK)
+		return append_table_math(renderer, cell, node);
+	if (type == CMARK_NODE_IMAGE)
+		return append_table_image(renderer, cell, node);
+	literal = cmark_node_get_literal(node);
+	if (type == CMARK_NODE_TEXT)
+		return append_table_text(cell, literal ? literal : "");
+	if (type == CMARK_NODE_CODE)
+		return append_table_item(cell, TABLE_ITEM_CODE,
+					 literal ? literal : "");
+	if (type == CMARK_NODE_SOFTBREAK || type == CMARK_NODE_LINEBREAK)
+		return append_table_item(cell, TABLE_ITEM_BREAK, NULL);
+	for (child = cmark_node_first_child(node); child;
+	     child = cmark_node_next(child)) {
+		rc = collect_cell_items(renderer, child, cell);
+		if (rc != MD_OK)
+			return rc;
+	}
+	if (type == CMARK_NODE_LINK)
+		return append_table_link_destination(
+			cell, cmark_node_get_url(node));
+	return MD_OK;
+}
+
+static void measure_table_cell(struct table_cell_text *cell)
+{
+	struct table_inline_item *item;
+	size_t offset;
+	size_t length;
+	size_t i;
+	unsigned int current = 0u;
+	unsigned int maximum = 1u;
+	unsigned int minimum = 1u;
+
+	for (i = 0u; i < cell->items.len; i++) {
+		item = md_array_get(&cell->items, i);
+		if (item->kind == TABLE_ITEM_BREAK) {
+			if (current > maximum)
+				maximum = current;
+			current = 0u;
+			continue;
+		}
+		if (item->kind == TABLE_ITEM_CODE)
+			item->width += 2u;
+		current += item->width;
+		if (item->kind != TABLE_ITEM_TEXT) {
+			if (item->width > minimum)
+				minimum = item->width;
+			continue;
+		}
+		for (offset = 0u; item->text[offset]; offset += length) {
+			length = md_utf8_grapheme_len(
+				item->text + offset, strlen(item->text + offset));
+			if ((unsigned int)md_utf8_grapheme_width_n(
+				    item->text + offset, length) > minimum) {
+				minimum = (unsigned int)md_utf8_grapheme_width_n(
+					item->text + offset, length);
+			}
+		}
+	}
+	if (current > maximum)
+		maximum = current;
+	cell->min_width = minimum;
+	cell->preferred_width = maximum < minimum ? minimum : maximum;
+}
+
+static int collect_table(struct morph_md_kitty *renderer, cmark_node *node,
+			 struct md_array *rows, size_t *col_count)
 {
 	struct table_row_text *row_text;
 	struct table_cell_text *cell_text;
 	cmark_node *row;
 	cmark_node *cell;
+	int rc;
 
 	md_array_init(rows, sizeof(struct table_row_text));
 	*col_count = 0;
@@ -971,11 +1378,11 @@ static int collect_table(cmark_node *node, struct md_array *rows,
 			cell_text = md_array_push(&row_text->cells);
 			if (!cell_text)
 				return MD_ERR_NOMEM;
-			cell_text->text = NULL;
-			cell_text->rows = 1;
-			cell_text->text = plain_text_dup(cell);
-			if (!cell_text->text)
-				return MD_ERR_NOMEM;
+			table_cell_init(cell_text);
+			rc = collect_cell_items(renderer, cell, cell_text);
+			if (rc != MD_OK)
+				return rc;
+			measure_table_cell(cell_text);
 		}
 		if (row_text->cells.len > *col_count)
 			*col_count = row_text->cells.len;
@@ -983,46 +1390,334 @@ static int collect_table(cmark_node *node, struct md_array *rows,
 	return MD_OK;
 }
 
-static int table_metrics(struct morph_md_kitty *renderer,
-			 struct md_array *rows, size_t col_count, int *widths)
+static int table_line_append_text(struct table_cell_line *line,
+				  const char *text, size_t len,
+				  unsigned int width)
+{
+	struct table_line_piece *piece;
+	int rc;
+
+	piece = line->pieces.len ?
+		md_array_get(&line->pieces, line->pieces.len - 1u) : NULL;
+	if (!piece || piece->kind != TABLE_ITEM_TEXT) {
+		piece = md_array_push(&line->pieces);
+		if (!piece)
+			return MD_ERR_NOMEM;
+		memset(piece, 0, sizeof(*piece));
+		piece->kind = TABLE_ITEM_TEXT;
+		md_buf_init(&piece->text);
+	}
+	rc = md_buf_append(&piece->text, text, len);
+	if (rc == MD_OK)
+		line->width += width;
+	return rc;
+}
+
+static int table_line_append_visual(struct table_cell_line *line,
+				    const struct table_inline_item *item)
+{
+	struct table_line_piece *piece = md_array_push(&line->pieces);
+
+	if (!piece)
+		return MD_ERR_NOMEM;
+	memset(piece, 0, sizeof(*piece));
+	piece->kind = item->kind;
+	piece->item = item;
+	md_buf_init(&piece->text);
+	line->width += item->width;
+	if (item->rows > line->height)
+		line->height = item->rows;
+	return MD_OK;
+}
+
+struct table_wrap_state {
+	struct table_cell_text *cell;
+	struct table_cell_line *line;
+	struct md_buf pending_space;
+	unsigned int pending_width;
+	unsigned int width;
+};
+
+static int table_wrap_new_line(struct table_wrap_state *state)
+{
+	struct table_cell_line *line = md_array_push(&state->cell->lines);
+
+	if (!line)
+		return MD_ERR_NOMEM;
+	memset(line, 0, sizeof(*line));
+	md_array_init(&line->pieces, sizeof(struct table_line_piece));
+	line->height = 1;
+	state->line = line;
+	state->pending_space.len = 0u;
+	if (state->pending_space.data)
+		state->pending_space.data[0] = '\0';
+	state->pending_width = 0u;
+	return MD_OK;
+}
+
+static void table_wrap_clear_pending(struct table_wrap_state *state)
+{
+	state->pending_space.len = 0u;
+	if (state->pending_space.data)
+		state->pending_space.data[0] = '\0';
+	state->pending_width = 0u;
+}
+
+static int table_wrap_consume_pending(struct table_wrap_state *state)
+{
+	int rc = MD_OK;
+
+	if (state->line->width > 0u && state->pending_space.len > 0u) {
+		rc = table_line_append_text(
+			state->line, state->pending_space.data,
+			state->pending_space.len, state->pending_width);
+	}
+	table_wrap_clear_pending(state);
+	return rc;
+}
+
+static int table_wrap_place_text(struct table_wrap_state *state,
+				 const char *text, size_t len,
+				 unsigned int width)
+{
+	int rc;
+
+	if (state->line->width > 0u &&
+	    state->line->width + state->pending_width + width > state->width) {
+		rc = table_wrap_new_line(state);
+		if (rc != MD_OK)
+			return rc;
+	}
+	rc = table_wrap_consume_pending(state);
+	return rc == MD_OK ?
+		table_line_append_text(state->line, text, len, width) : rc;
+}
+
+static int table_wrap_place_emergency(struct table_wrap_state *state,
+				      const char *text, size_t len)
+{
+	size_t offset = 0u;
+	size_t length;
+	unsigned int width;
+	int rc;
+
+	while (offset < len) {
+		length = md_utf8_grapheme_len(text + offset, len - offset);
+		width = (unsigned int)md_utf8_grapheme_width_n(
+			text + offset, length);
+		rc = table_wrap_place_text(
+			state, text + offset, length, width);
+		if (rc != MD_OK)
+			return rc;
+		offset += length;
+	}
+	return MD_OK;
+}
+
+static size_t table_text_chunk_len(const char *text, size_t len)
+{
+	size_t current_len;
+	size_t next;
+	size_t next_len;
+
+	current_len = md_utf8_grapheme_len(text, len);
+	next = current_len;
+	while (next < len) {
+		next_len = md_utf8_grapheme_len(text + next, len - next);
+		if (md_utf8_is_space_n(text + next, next_len) ||
+		    md_utf8_break_allowed_between(
+			    text + next - current_len, current_len,
+			    text + next, next_len))
+			break;
+		current_len = next_len;
+		next += next_len;
+	}
+	return next;
+}
+
+static int table_wrap_text_item(struct table_wrap_state *state,
+				const struct table_inline_item *item)
+{
+	const char *text = item->text;
+	size_t len = strlen(text);
+	size_t offset = 0u;
+	size_t length;
+	unsigned int width;
+	int rc;
+
+	while (offset < len) {
+		length = md_utf8_grapheme_len(text + offset, len - offset);
+		if (md_utf8_is_space_n(text + offset, length)) {
+			rc = md_buf_append(
+				&state->pending_space, text + offset, length);
+			if (rc != MD_OK)
+				return rc;
+			state->pending_width +=
+				(unsigned int)md_utf8_grapheme_width_n(
+					text + offset, length);
+			offset += length;
+			continue;
+		}
+		length = table_text_chunk_len(text + offset, len - offset);
+		width = (unsigned int)md_utf8_display_width_n(
+			text + offset, length);
+		if (width > state->width)
+			rc = table_wrap_place_emergency(
+				state, text + offset, length);
+		else
+			rc = table_wrap_place_text(
+				state, text + offset, length, width);
+		if (rc != MD_OK)
+			return rc;
+		offset += length;
+	}
+	return MD_OK;
+}
+
+static int table_wrap_atomic_item(struct table_wrap_state *state,
+				  const struct table_inline_item *item)
+{
+	int rc;
+
+	if (state->line->width > 0u &&
+	    state->line->width + state->pending_width + item->width >
+		    state->width) {
+		rc = table_wrap_new_line(state);
+		if (rc != MD_OK)
+			return rc;
+	}
+	rc = table_wrap_consume_pending(state);
+	if (rc != MD_OK)
+		return rc;
+	if (item->kind == TABLE_ITEM_MATH ||
+	    item->kind == TABLE_ITEM_IMAGE)
+		return table_line_append_visual(state->line, item);
+	rc = table_line_append_text(state->line, "`", 1u, 1u);
+	if (rc == MD_OK)
+		rc = table_line_append_text(
+			state->line, item->text, strlen(item->text),
+			item->width - 2u);
+	if (rc == MD_OK)
+		rc = table_line_append_text(state->line, "`", 1u, 1u);
+	return rc;
+}
+
+static int table_cell_wrap(struct table_cell_text *cell, unsigned int width)
+{
+	struct table_wrap_state state;
+	struct table_inline_item *item;
+	struct table_cell_line *line;
+	size_t i;
+	int rc;
+
+	memset(&state, 0, sizeof(state));
+	state.cell = cell;
+	state.width = width > 0u ? width : 1u;
+	md_buf_init(&state.pending_space);
+	rc = table_wrap_new_line(&state);
+	for (i = 0u; rc == MD_OK && i < cell->items.len; i++) {
+		item = md_array_get(&cell->items, i);
+		if (item->kind == TABLE_ITEM_TEXT)
+			rc = table_wrap_text_item(&state, item);
+		else if (item->kind == TABLE_ITEM_BREAK)
+			rc = table_wrap_new_line(&state);
+		else
+			rc = table_wrap_atomic_item(&state, item);
+	}
+	table_wrap_clear_pending(&state);
+	cell->height = 0;
+	for (i = 0u; i < cell->lines.len; i++) {
+		line = md_array_get(&cell->lines, i);
+		cell->height += line->height;
+	}
+	if (cell->height == 0)
+		cell->height = 1;
+	md_buf_cleanup(&state.pending_space);
+	return rc;
+}
+
+static unsigned int table_available_content_width(
+	const struct morph_md_kitty *renderer, size_t col_count)
+{
+	uint64_t content;
+	uint64_t overhead;
+	unsigned int left = renderer->options.content_padding_left_columns;
+	unsigned int right = renderer->options.content_padding_right_columns;
+
+	content = renderer->viewport_columns;
+	if (content > (uint64_t)left + right)
+		content -= (uint64_t)left + right;
+	else
+		content = 1u;
+	overhead = 3u * col_count + 1u;
+	return content > overhead ? (unsigned int)(content - overhead) : 0u;
+}
+
+static int resolve_table_columns(struct md_array *rows, size_t col_count,
+				 unsigned int available, unsigned int *widths)
+{
+	struct md_table_column_constraint *columns;
+	struct table_row_text *row;
+	struct table_cell_text *cell;
+	size_t r;
+	size_t c;
+	int rc;
+
+	columns = calloc(col_count ? col_count : 1u, sizeof(*columns));
+	if (!columns)
+		return MD_ERR_NOMEM;
+	for (c = 0u; c < col_count; c++) {
+		columns[c].min_width = 1u;
+		columns[c].preferred_width = 1u;
+	}
+	for (r = 0u; r < rows->len; r++) {
+		row = md_array_get(rows, r);
+		for (c = 0u; c < row->cells.len; c++) {
+			cell = md_array_get(&row->cells, c);
+			if (cell->min_width > columns[c].min_width)
+				columns[c].min_width = cell->min_width;
+			if (cell->preferred_width > columns[c].preferred_width)
+				columns[c].preferred_width =
+					cell->preferred_width;
+		}
+	}
+	rc = md_table_size_columns(columns, col_count, available, widths);
+	free(columns);
+	return rc;
+}
+
+static int wrap_table_cells(struct md_array *rows, size_t col_count,
+			    const unsigned int *widths)
 {
 	struct table_row_text *row;
 	struct table_cell_text *cell;
 	size_t r;
 	size_t c;
-	int width;
 	int rc;
 
-	for (c = 0; c < col_count; c++)
-		widths[c] = 3;
-	for (r = 0; r < rows->len; r++) {
+	for (r = 0u; r < rows->len; r++) {
 		row = md_array_get(rows, r);
-		for (c = 0; c < row->cells.len; c++) {
+		for (c = 0u; c < row->cells.len && c < col_count; c++) {
 			cell = md_array_get(&row->cells, c);
-			cell->rows = 1;
-			rc = text_math_metrics(renderer, cell->text,
-					       &cell->width, &cell->rows);
+			rc = table_cell_wrap(cell, widths[c]);
 			if (rc != MD_OK)
 				return rc;
-			width = cell->width;
-			if (width > widths[c])
-				widths[c] = width;
 		}
 	}
 	return MD_OK;
 }
 
 static int print_border(struct morph_md_kitty *renderer, const char *left,
-			const char *mid, const char *right, const int *widths,
-			size_t col_count)
+			const char *mid, const char *right,
+			const unsigned int *widths, size_t col_count)
 {
 	size_t c;
-	int i;
+	unsigned int i;
 	int rc;
 
 	rc = renderer_puts(renderer, left);
-	for (c = 0; c < col_count; c++) {
-		for (i = 0; rc == MD_OK && i < widths[c] + 2; i++)
+	for (c = 0u; c < col_count; c++) {
+		for (i = 0u; rc == MD_OK && i < widths[c] + 2u; i++)
 			rc = renderer_puts(renderer, "─");
 		if (rc == MD_OK)
 			rc = renderer_puts(renderer,
@@ -1031,75 +1726,133 @@ static int print_border(struct morph_md_kitty *renderer, const char *left,
 	return rc == MD_OK ? renderer_putc(renderer, '\n') : rc;
 }
 
-static int print_padded_cell(struct morph_md_kitty *renderer,
-			     struct table_cell_text *cell, int width)
+static struct table_cell_line *table_cell_physical_line(
+	struct table_cell_text *cell, int physical_row)
 {
-	int used;
-	int i;
+	struct table_cell_line *line;
+	int top = 0;
+	size_t i;
+
+	if (!cell)
+		return NULL;
+	for (i = 0u; i < cell->lines.len; i++) {
+		line = md_array_get(&cell->lines, i);
+		if (physical_row == top)
+			return line;
+		if (physical_row < top + line->height)
+			return NULL;
+		top += line->height;
+	}
+	return NULL;
+}
+
+static int render_table_cell_line(struct morph_md_kitty *renderer,
+				  struct table_cell_line *line)
+{
+	struct table_line_piece *piece;
+	size_t i;
+	int rc = MD_OK;
+
+	if (!line)
+		return MD_OK;
+	for (i = 0u; rc == MD_OK && i < line->pieces.len; i++) {
+		piece = md_array_get(&line->pieces, i);
+		if (piece->kind == TABLE_ITEM_MATH) {
+			rc = render_formula(
+				renderer, piece->item->text,
+				strlen(piece->item->text), piece->item->style);
+		} else if (piece->kind == TABLE_ITEM_IMAGE) {
+			rc = render_png_placement(
+				renderer, piece->item->text,
+				piece->item->width,
+				(unsigned int)piece->item->rows);
+		} else {
+			rc = renderer_visible_write(
+				renderer, piece->text.data, piece->text.len);
+		}
+	}
+	return rc;
+}
+
+static int print_table_cell(struct morph_md_kitty *renderer,
+			    struct table_cell_text *cell, unsigned int width,
+			    int physical_row)
+{
+	struct table_cell_line *line =
+		table_cell_physical_line(cell, physical_row);
+	unsigned int used = line ? line->width : 0u;
+	unsigned int i;
 	int rc;
 
-	used = cell ? cell->width : 0;
 	rc = renderer_putc(renderer, ' ');
-	if (rc == MD_OK && cell)
-		rc = render_text_with_math(renderer, cell->text);
+	if (rc == MD_OK)
+		rc = render_table_cell_line(renderer, line);
 	for (i = used; rc == MD_OK && i < width; i++)
 		rc = renderer_putc(renderer, ' ');
 	return rc == MD_OK ? renderer_putc(renderer, ' ') : rc;
 }
 
-static int print_empty_table_line(struct morph_md_kitty *renderer,
-				  const int *widths, size_t col_count)
-{
-	size_t c;
-	int i;
-	int rc;
-
-	rc = renderer_puts(renderer, "│");
-	for (c = 0u; rc == MD_OK && c < col_count; c++) {
-		for (i = 0; rc == MD_OK && i < widths[c] + 2; i++)
-			rc = renderer_putc(renderer, ' ');
-		if (rc == MD_OK)
-			rc = renderer_puts(renderer, "│");
-	}
-	return rc == MD_OK ? renderer_putc(renderer, '\n') : rc;
-}
-
 static int print_table_row(struct morph_md_kitty *renderer,
-			   struct table_row_text *row, const int *widths,
-			   size_t col_count)
+			   struct table_row_text *row,
+			   const unsigned int *widths, size_t col_count)
 {
 	struct table_cell_text *cell;
 	size_t c;
 	int row_height = 1;
-	int line;
+	int physical;
+	int rc = MD_OK;
+
+	for (c = 0u; c < row->cells.len; c++) {
+		cell = md_array_get(&row->cells, c);
+		if (cell->height > row_height)
+			row_height = cell->height;
+	}
+	for (physical = 0; rc == MD_OK && physical < row_height; physical++) {
+		rc = renderer_puts(renderer, "│");
+		for (c = 0u; rc == MD_OK && c < col_count; c++) {
+			cell = c < row->cells.len ?
+				md_array_get(&row->cells, c) : NULL;
+			rc = print_table_cell(
+				renderer, cell, widths[c], physical);
+			if (rc == MD_OK)
+				rc = renderer_puts(renderer, "│");
+		}
+		if (rc == MD_OK)
+			rc = renderer_putc(renderer, '\n');
+	}
+	return rc;
+}
+
+static int render_table_rows(struct morph_md_kitty *renderer,
+			     struct md_array *rows,
+			     const unsigned int *widths, size_t col_count)
+{
+	struct table_row_text *row;
+	size_t r;
 	int rc;
 
-	rc = renderer_puts(renderer, "│");
-	for (c = 0; rc == MD_OK && c < col_count; c++) {
-		cell = c < row->cells.len ? md_array_get(&row->cells, c) : NULL;
-		if (cell && cell->rows > row_height)
-			row_height = cell->rows;
-		rc = print_padded_cell(renderer, cell, widths[c]);
-		if (rc == MD_OK)
-			rc = renderer_puts(renderer, "│");
+	rc = print_border(renderer, "┌", "┬", "┐", widths, col_count);
+	for (r = 0u; rc == MD_OK && r < rows->len; r++) {
+		row = md_array_get(rows, r);
+		rc = print_table_row(renderer, row, widths, col_count);
+		if (rc == MD_OK && r == 0u)
+			rc = print_border(renderer, "├", "┼", "┤",
+					  widths, col_count);
 	}
 	if (rc == MD_OK)
-		rc = renderer_putc(renderer, '\n');
-	for (line = 1; rc == MD_OK && line < row_height; line++)
-		rc = print_empty_table_line(renderer, widths, col_count);
-	return rc;
+		rc = print_border(renderer, "└", "┴", "┘", widths, col_count);
+	return rc == MD_OK ? renderer_putc(renderer, '\n') : rc;
 }
 
 static int render_table(struct morph_md_kitty *renderer, cmark_node *node)
 {
-	struct table_row_text *row;
 	struct md_array rows;
 	size_t col_count;
-	size_t r;
-	int *widths;
+	unsigned int *widths;
+	unsigned int available;
 	int rc;
 
-	rc = collect_table(node, &rows, &col_count);
+	rc = collect_table(renderer, node, &rows, &col_count);
 	if (rc != MD_OK) {
 		table_rows_cleanup(&rows);
 		return rc;
@@ -1109,20 +1862,12 @@ static int render_table(struct morph_md_kitty *renderer, cmark_node *node)
 		table_rows_cleanup(&rows);
 		return MD_ERR_NOMEM;
 	}
-	rc = table_metrics(renderer, &rows, col_count, widths);
+	available = table_available_content_width(renderer, col_count);
+	rc = resolve_table_columns(&rows, col_count, available, widths);
 	if (rc == MD_OK)
-		rc = print_border(renderer, "┌", "┬", "┐", widths, col_count);
-	for (r = 0; rc == MD_OK && r < rows.len; r++) {
-		row = md_array_get(&rows, r);
-		rc = print_table_row(renderer, row, widths, col_count);
-		if (rc == MD_OK && r == 0)
-			rc = print_border(renderer, "├", "┼", "┤",
-					  widths, col_count);
-	}
+		rc = wrap_table_cells(&rows, col_count, widths);
 	if (rc == MD_OK)
-		rc = print_border(renderer, "└", "┴", "┘", widths, col_count);
-	if (rc == MD_OK)
-		rc = renderer_putc(renderer, '\n');
+		rc = render_table_rows(renderer, &rows, widths, col_count);
 	free(widths);
 	table_rows_cleanup(&rows);
 	return rc;
@@ -1231,13 +1976,7 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		return renderer_putc(renderer, '\n');
 	}
 	if (type == CMARK_NODE_IMAGE) {
-		rc = collect_media(renderer,
-				   is_video_path(cmark_node_get_url(node)) ?
-				   "video" : "image",
-				   cmark_node_get_url(node));
-		return rc == MD_OK ?
-			renderer_printf(renderer, "[image: %s]",
-					cmark_node_get_url(node)) : rc;
+		return render_image_node(renderer, node);
 	}
 	if (kind && strcmp(kind, "table") == 0) {
 		renderer->wrap_suppression++;

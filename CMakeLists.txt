@@ -29,6 +29,7 @@ add_library(morph-markdown-render STATIC
 	src/base/md_buf.c
 	src/base/md_hash.c
 	src/base/md_strmap.c
+	src/base/md_table_layout.c
 	src/base/md_utf8.c
 	src/base/md_width.c
 	src/md_math_ext.c
@@ -140,6 +141,13 @@ if(MORPH_MARKDOWN_BUILD_TESTS)
 	target_link_libraries(test_md_engine PRIVATE morph-markdown-render)
 
 	add_test(NAME test_md_engine COMMAND test_md_engine)
+
+	add_executable(test_md_table_layout
+		tests/test_md_table_layout.c
+	)
+	target_link_libraries(test_md_table_layout PRIVATE morph-markdown-render)
+
+	add_test(NAME test_md_table_layout COMMAND test_md_table_layout)
 
 	if(Python3_Interpreter_FOUND)
 		add_test(

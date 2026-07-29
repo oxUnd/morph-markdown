@@ -26,8 +26,9 @@ struct morph_md_kitty_options {
 	int (*write)(const char *bytes, size_t len, void *user_data);
 	void *user_data;
 	/*
-	 * Receives local image and video references after Markdown rendering.
-	 * file:// prefixes are removed before the callback is invoked.
+	 * Receives media references the SDK could not render directly, including
+	 * remote images, invalid/non-PNG files and videos. file:// prefixes are
+	 * removed before the callback is invoked.
 	 */
 	void (*media)(const char *type, const char *path, void *user_data);
 	void *media_user_data;

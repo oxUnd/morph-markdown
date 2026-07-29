@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef MORPH_TEST_MATH_FONT_PATH
 #define MORPH_TEST_MATH_FONT_PATH "fonts/STIXTwoMath-Regular.ttf"
@@ -58,6 +59,42 @@ static unsigned int max_kitty_image_height(const char *output)
 		command++;
 	}
 	return maximum;
+}
+
+static int write_test_png(const char *path)
+{
+	static const unsigned char png[] = {
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+		0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+		0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
+		0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+		0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+	};
+	FILE *file = fopen(path, "wb");
+	size_t written;
+
+	if (!file)
+		return -1;
+	written = fwrite(png, 1u, sizeof(png), file);
+	if (fclose(file) != 0)
+		return -1;
+	return written == sizeof(png) ? 0 : -1;
+}
+
+static int substring_count(const char *text, const char *needle)
+{
+	int count = 0;
+	size_t len = strlen(needle);
+
+	while ((text = strstr(text, needle)) != NULL) {
+		count++;
+		text += len;
+	}
+	return count;
 }
 
 static void test_stream_render_and_final(void)
@@ -212,6 +249,131 @@ static void test_streaming_table_stays_in_live_tail(void)
 	assert(strstr(output.bytes, "│ 1   │ 2") != NULL);
 	assert(strstr(output.bytes, "\033[H") == NULL);
 	assert(strstr(output.bytes, "\033[2J") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_table_wraps_to_viewport(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"| id | description |\n"
+		"|---|---|\n"
+		"| 1 | alpha beta gamma delta |\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 24u;
+	options.content_padding_right_columns = 2u;
+	options.content_padding_left_columns = 2u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "  │ id │ description │\n") != NULL);
+	assert(strstr(output.bytes,
+		      "  │ 1  │ alpha beta  │\n"
+		      "  │    │ gamma delta │\n") != NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_table_cjk_and_long_word_wrapping(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"| 内容 |\n"
+		"|---|\n"
+		"| 中文，测试。 |\n"
+		"| abcdefghijk |\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 12u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "│ 中文，测 │\n│ 试。     │\n") != NULL);
+	assert(strstr(output.bytes, "│ abcdefgh │\n│ ijk      │\n") != NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_table_code_is_atomic_and_tabs_are_stable(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"| value |\n"
+		"|---|\n"
+		"| `abcdefghij` |\n"
+		"| a\tb |\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 12u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "│ `abcdefghij` │\n") != NULL);
+	assert(strstr(output.bytes, "│ a    b       │\n") != NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_links_show_destination_in_text_and_tables(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"[site](https://example.com)\n\n"
+		"| link |\n"
+		"|---|\n"
+		"| [site](https://example.com) |\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 60u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes,
+		      "site (https://example.com)\n\n") != NULL);
+	assert(strstr(output.bytes,
+		      "│ site (https://example.com) │\n") != NULL);
 	morph_md_kitty_destroy(renderer);
 }
 
@@ -385,6 +547,44 @@ static void test_media_callback(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_local_png_renders_in_blocks_and_tables(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	char path[128];
+	char markdown[512];
+
+	snprintf(path, sizeof(path),
+		 "/tmp/morph-markdown-kitty-test-%ld.png", (long)getpid());
+	assert(write_test_png(path) == 0);
+	snprintf(markdown, sizeof(markdown),
+		 "![block](file://%s)\n\n"
+		 "| image |\n"
+		 "|---|\n"
+		 "| ![cell](file://%s) |\n",
+		 path, path);
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 40u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(substring_count(output.bytes, "\033_Ga=T,f=100,") == 2);
+	assert(strstr(output.bytes, ",C=1,q=2,c=1,r=1,m=0;") != NULL);
+	assert(strstr(output.bytes, "[image:") == NULL);
+	morph_md_kitty_destroy(renderer);
+	assert(unlink(path) == 0);
+}
+
 static void test_math_uses_native_size_kitty_transfer(void)
 {
 	struct morph_md_kitty_options options;
@@ -472,12 +672,17 @@ int main(void)
 	test_clear_sequence();
 	test_incremental_render_preserves_scrollback();
 	test_streaming_table_stays_in_live_tail();
+	test_table_wraps_to_viewport();
+	test_table_cjk_and_long_word_wrapping();
+	test_table_code_is_atomic_and_tabs_are_stable();
+	test_links_show_destination_in_text_and_tables();
 	test_content_padding_and_wrapping();
 	test_initial_cursor_column_and_wrapping();
 	test_initial_cursor_column_preserves_prefix_on_refresh();
 	test_initial_cursor_column_refreshes_later_rows_from_margin();
 	test_heading_underline_excludes_left_padding();
 	test_media_callback();
+	test_local_png_renders_in_blocks_and_tables();
 	test_math_uses_native_size_kitty_transfer();
 	test_streaming_math_deletes_only_live_placements();
 	return 0;

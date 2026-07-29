@@ -45,7 +45,7 @@ morph_md_kitty_render(renderer);
 | dynamic table growth | ok |
 | inline formula $a^2+b^2=c^2$ | rendered in cell |
 | tall aligned formula | $\begin{aligned}\nabla f(x^*)+A^T\lambda+B^T\mu&=0 \\ Ax^*-b&=0 \\ \mu_i(Bx^*-c)_i&=0\end{aligned}$ |
-| valid image ![generated](file:///tmp/morph-markdown-generated.png) | image placeholder in terminal |
+| valid image ![generated](file:///tmp/morph-markdown-generated.png) | Kitty graphics placement |
 | invalid image ![missing](file:///tmp/morph-markdown-missing.png) | error placeholder in terminal |
 | code `cell.value()` and [link](https://example.com) | mixed inline |
 | tab text | key	value	with tabs |

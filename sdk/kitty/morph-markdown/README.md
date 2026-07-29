@@ -38,9 +38,15 @@ By default output goes to `stdout`. Set `options.write` and `options.user_data`
 to route the UTF-8, ANSI and Kitty protocol byte stream elsewhere. The callback
 must return zero on success.
 
-Set `options.media` and `options.media_user_data` to receive image and video
-references after the text frame has rendered. The SDK removes a leading
-`file://` prefix before invoking the callback.
+Local PNG images are transmitted directly with the Kitty graphics protocol.
+Block images are scaled down only when necessary to fit the content viewport;
+table images keep their intrinsic cell size and participate in column and row
+measurement. Invalid files, non-PNG formats, remote URLs and videos render a
+text placeholder instead.
+
+Set `options.media` and `options.media_user_data` to receive media references
+the SDK could not render directly. The SDK removes a leading `file://` prefix
+before invoking the callback.
 
 Math bitmaps are transmitted at their native pixel dimensions. The SDK uses
 Kitty's no-cursor-movement placement policy and reserves the corresponding
@@ -49,8 +55,17 @@ terminal columns without requesting image scaling. Math requires a valid
 without math.
 
 Content padding is measured in terminal rows and columns. Right padding reduces
-the width available to normal text wrapping; inline code, native-size formulas
-and tables remain unbreakable and may exceed that boundary.
+the width available to normal text and table layout. Tables use intrinsic
+column sizing: compact tables keep their preferred width, while wider tables
+shrink columns toward their minimum content width and wrap cell text. Wrapping
+prefers whitespace and Unicode/CJK break opportunities, then splits an
+otherwise unbreakable ordinary word at a grapheme boundary. Tabs in table cells
+expand to four spaces for deterministic alignment.
+
+Inline code and native-size formulas remain atomic table items. They are never
+split, scaled or compressed, so either may force a table wider than the
+available terminal width. A table with more columns than its borders and
+minimum cell widths can accommodate may also exceed that boundary.
 
 When the caller writes a visible prefix before rendering, set
 `initial_cursor_column` to the cursor column after that prefix. The first
