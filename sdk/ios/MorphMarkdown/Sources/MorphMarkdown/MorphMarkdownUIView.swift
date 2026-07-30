@@ -1,11 +1,32 @@
 #if canImport(UIKit)
 import UIKit
 
+private final class MorphMarkdownLongPressGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+	func gestureRecognizer(
+		_ gestureRecognizer: UIGestureRecognizer,
+		shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+	) -> Bool {
+		guard otherGestureRecognizer is UIPanGestureRecognizer else {
+			return false
+		}
+
+		var ancestor = gestureRecognizer.view?.superview
+		while let view = ancestor {
+			if view === otherGestureRecognizer.view {
+				return true
+			}
+			ancestor = view.superview
+		}
+		return false
+	}
+}
+
 public final class MorphMarkdownUIView: UIScrollView {
 	private var engine: MorphMarkdownEngine
 	private let body = UIStackView()
 	private let renderer = MorphMarkdownRenderer()
 	private let renderDebounce = RenderDebounceState()
+	private let contentLongPressGestureDelegate = MorphMarkdownLongPressGestureDelegate()
 	private var scheduledRender: DispatchWorkItem?
 	private var progressiveRender: DispatchWorkItem?
 	private var applyingConfiguration = false
@@ -288,6 +309,7 @@ public final class MorphMarkdownUIView: UIScrollView {
 
 	private func configure() {
 		alwaysBounceVertical = false
+		contentLongPressRecognizer.delegate = contentLongPressGestureDelegate
 		addGestureRecognizer(contentLongPressRecognizer)
 		addSubview(body)
 		body.axis = .vertical

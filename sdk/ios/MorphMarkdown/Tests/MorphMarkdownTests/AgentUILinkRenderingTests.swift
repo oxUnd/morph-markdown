@@ -43,9 +43,26 @@ final class AgentUILinkRenderingTests: XCTestCase {
 			parent: parent
 		)
 
-		let paragraph = try XCTUnwrap(firstAttributedTextView(in: parent))
-		XCTAssertFalse(paragraph.isSelectable)
+		let paragraph = try XCTUnwrap(firstAttributedLabel(in: parent))
 		XCTAssertFalse(paragraph.isUserInteractionEnabled)
+	}
+
+	func testPlainAttributedParagraphWrapsAndCachesMeasurement() {
+		let view = InlineAttributedLabel(contentInsets: .zero)
+		view.attributedText = NSAttributedString(
+			string: String(repeating: "wrapping text ", count: 20),
+			attributes: [.font: UIFont.systemFont(ofSize: 17)]
+		)
+		view.frame = CGRect(x: 0, y: 0, width: 140, height: 1)
+
+		let wrapped = view.sizeThatFits(CGSize(width: 140, height: CGFloat.greatestFiniteMagnitude))
+		let repeated = view.sizeThatFits(CGSize(width: 140, height: CGFloat.greatestFiniteMagnitude))
+		let singleLine = view.sizeThatFits(CGSize(width: 10_000, height: CGFloat.greatestFiniteMagnitude))
+
+		XCTAssertEqual(wrapped, repeated)
+		XCTAssertGreaterThan(wrapped.height, singleLine.height * 2)
+		XCTAssertEqual(view.measurementComputationCount, 2)
+		XCTAssertEqual(view.intrinsicContentSize.width, UIView.noIntrinsicMetric)
 	}
 
 	func testFinalAppendCompletesDeferredRender() {
@@ -141,6 +158,18 @@ final class AgentUILinkRenderingTests: XCTestCase {
 		for child in view.subviews {
 			if let link = firstAttributedTextView(in: child) {
 				return link
+			}
+		}
+		return nil
+	}
+
+	private func firstAttributedLabel(in view: UIView) -> InlineAttributedLabel? {
+		if let label = view as? InlineAttributedLabel {
+			return label
+		}
+		for child in view.subviews {
+			if let label = firstAttributedLabel(in: child) {
+				return label
 			}
 		}
 		return nil

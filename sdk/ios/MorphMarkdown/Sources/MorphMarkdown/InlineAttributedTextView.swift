@@ -1,6 +1,102 @@
 #if canImport(UIKit)
 import UIKit
 
+final class InlineAttributedLabel: UILabel, TableIntrinsicOverride {
+	let contentInsets: UIEdgeInsets
+	private var measurementCache: [CGFloat: CGSize] = [:]
+	private(set) var measurementComputationCount = 0
+
+	override var attributedText: NSAttributedString? {
+		didSet {
+			measurementCache.removeAll(keepingCapacity: true)
+		}
+	}
+
+	init(contentInsets: UIEdgeInsets) {
+		self.contentInsets = contentInsets
+		super.init(frame: .zero)
+		numberOfLines = 0
+		lineBreakMode = .byWordWrapping
+		setContentHuggingPriority(.defaultLow, for: .horizontal)
+		setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		setContentHuggingPriority(.required, for: .vertical)
+		setContentCompressionResistancePriority(.required, for: .vertical)
+	}
+
+	required init?(coder: NSCoder) {
+		return nil
+	}
+
+	override func drawText(in rect: CGRect) {
+		super.drawText(in: rect.inset(by: contentInsets))
+	}
+
+	override func sizeThatFits(_ size: CGSize) -> CGSize {
+		let width = size.width > 0 ? size.width : CGFloat.greatestFiniteMagnitude
+		if let cached = measurementCache[width] {
+			return cached
+		}
+		let innerWidth = max(0, width - contentInsets.left - contentInsets.right)
+		let fit = attributedText?.boundingRect(
+			with: CGSize(width: innerWidth, height: CGFloat.greatestFiniteMagnitude),
+			options: [.usesLineFragmentOrigin, .usesFontLeading],
+			context: nil
+		).size ?? .zero
+		let measured = CGSize(
+			width: ceil(min(innerWidth, fit.width) + contentInsets.left + contentInsets.right),
+			height: ceil(fit.height + contentInsets.top + contentInsets.bottom)
+		)
+		if measurementCache.count >= 4 {
+			measurementCache.removeAll(keepingCapacity: true)
+		}
+		measurementCache[width] = measured
+		measurementComputationCount += 1
+		return measured
+	}
+
+	override var intrinsicContentSize: CGSize {
+		guard bounds.width > 0 else {
+			return CGSize(width: UIView.noIntrinsicMetric, height: super.intrinsicContentSize.height)
+		}
+		let height = sizeThatFits(
+			CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+		).height
+		return CGSize(width: UIView.noIntrinsicMetric, height: height)
+	}
+
+	var tableMinimumWidth: CGFloat {
+		guard let attributedText, attributedText.length > 0 else {
+			return contentInsets.left + contentInsets.right
+		}
+		var widest: CGFloat = 0
+		let source = attributedText.string as NSString
+		var location = 0
+		for fragment in InlineTextFragmenter.fragments(attributedText.string) {
+			let length = (fragment as NSString).length
+			let range = NSRange(location: location, length: min(length, source.length - location))
+			widest = max(widest, measuredWidth(attributedText.attributedSubstring(from: range)))
+			location += length
+		}
+		attributedText.enumerateAttribute(
+			.backgroundColor,
+			in: NSRange(location: 0, length: attributedText.length)
+		) { value, range, _ in
+			if value != nil {
+				widest = max(widest, measuredWidth(attributedText.attributedSubstring(from: range)))
+			}
+		}
+		return ceil(widest + contentInsets.left + contentInsets.right)
+	}
+
+	private func measuredWidth(_ value: NSAttributedString) -> CGFloat {
+		ceil(value.boundingRect(
+			with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+			options: [.usesLineFragmentOrigin, .usesFontLeading],
+			context: nil
+		).width)
+	}
+}
+
 final class InlineAttributedTextView: UITextView, UITextViewDelegate, TableIntrinsicOverride {
 	var onLinkClick: MorphMarkdownLinkHandler?
 	var linkTitles: [String: String] = [:]

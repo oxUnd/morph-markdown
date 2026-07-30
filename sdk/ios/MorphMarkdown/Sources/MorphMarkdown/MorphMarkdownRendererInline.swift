@@ -40,13 +40,6 @@ extension MorphMarkdownRenderer {
 			return nil
 		}
 		let insets = attributedInsets(compact: compact, role: role)
-		let view = InlineAttributedTextView(contentInsets: insets)
-		view.attributedText = output
-		view.linkTextAttributes = [
-			.foregroundColor: UIColor(argb: theme.linkTextColor),
-			.underlineStyle: theme.linkUnderline ? NSUnderlineStyle.single.rawValue : 0
-		]
-		view.linkTitles = titles
 		var containsLink = false
 		output.enumerateAttribute(.link, in: NSRange(location: 0, length: output.length)) {
 			value, _, stop in
@@ -55,8 +48,18 @@ extension MorphMarkdownRenderer {
 				stop.pointee = true
 			}
 		}
-		view.isSelectable = containsLink
-		view.isUserInteractionEnabled = containsLink
+		guard containsLink else {
+			let label = InlineAttributedLabel(contentInsets: insets)
+			label.attributedText = output
+			return label
+		}
+		let view = InlineAttributedTextView(contentInsets: insets)
+		view.attributedText = output
+		view.linkTextAttributes = [
+			.foregroundColor: UIColor(argb: theme.linkTextColor),
+			.underlineStyle: theme.linkUnderline ? NSUnderlineStyle.single.rawValue : 0
+		]
+		view.linkTitles = titles
 		view.onLinkClick = { [weak self] url, title in self?.onLinkClick?(url, title) }
 		return view
 	}
