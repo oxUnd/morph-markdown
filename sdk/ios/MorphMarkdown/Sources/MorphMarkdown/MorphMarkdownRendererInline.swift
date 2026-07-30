@@ -47,6 +47,16 @@ extension MorphMarkdownRenderer {
 			.underlineStyle: theme.linkUnderline ? NSUnderlineStyle.single.rawValue : 0
 		]
 		view.linkTitles = titles
+		var containsLink = false
+		output.enumerateAttribute(.link, in: NSRange(location: 0, length: output.length)) {
+			value, _, stop in
+			if value != nil {
+				containsLink = true
+				stop.pointee = true
+			}
+		}
+		view.isSelectable = containsLink
+		view.isUserInteractionEnabled = containsLink
 		view.onLinkClick = { [weak self] url, title in self?.onLinkClick?(url, title) }
 		return view
 	}

@@ -16,6 +16,8 @@ final class AgentUILinkRenderingTests: XCTestCase {
 		)
 
 		let link = try XCTUnwrap(firstAttributedTextView(in: parent))
+		XCTAssertTrue(link.isSelectable)
+		XCTAssertTrue(link.isUserInteractionEnabled)
 		let linkValue = try XCTUnwrap(link.attributedText.attribute(.link, at: 8, effectiveRange: nil) as? URL)
 		XCTAssertEqual(linkValue.absoluteString, "morph://speak?text=hello&lang=en-US")
 		link.onLinkClick?(linkValue.absoluteString, nil)
@@ -29,7 +31,21 @@ final class AgentUILinkRenderingTests: XCTestCase {
 		view.layoutMode = .intrinsicHeight
 		view.setMarkdown("A paragraph that should have an intrinsic height.")
 		XCTAssertFalse(view.isScrollEnabled)
+		XCTAssertFalse(view.panGestureRecognizer.isEnabled)
 		XCTAssertNotEqual(view.intrinsicContentSize.height, UIView.noIntrinsicMetric)
+	}
+
+	func testPlainParagraphDoesNotCaptureListScrollingTouches() throws {
+		let parent = UIStackView()
+		let renderer = MorphMarkdownRenderer()
+		renderer.render(
+			json: #"{"kind":"document","children":[{"kind":"paragraph","children":[{"kind":"text","literal":"plain markdown"}]}]}"#,
+			parent: parent
+		)
+
+		let paragraph = try XCTUnwrap(firstAttributedTextView(in: parent))
+		XCTAssertFalse(paragraph.isSelectable)
+		XCTAssertFalse(paragraph.isUserInteractionEnabled)
 	}
 
 	func testFinalAppendCompletesDeferredRender() {

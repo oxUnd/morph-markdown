@@ -305,8 +305,11 @@ public final class MorphMarkdownUIView: UIScrollView {
 	}
 
 	private func applyLayoutMode() {
-		isScrollEnabled = layoutMode == .scrollable
-		alwaysBounceVertical = layoutMode == .scrollable
+		let scrollable = layoutMode == .scrollable
+		isScrollEnabled = scrollable
+		panGestureRecognizer.isEnabled = scrollable
+		alwaysBounceVertical = scrollable
+		contentLongPressRecognizer.cancelsTouchesInView = false
 	}
 
 	@objc private func handleContentLongPress(_ recognizer: UILongPressGestureRecognizer) {
