@@ -71,7 +71,10 @@ struct list_state {
 struct media_ref {
 	char *type;
 	char *path;
+	size_t output_offset;
 };
+
+#define MEDIA_MARKER_SIZE 1u
 
 struct morph_md_kitty {
 	struct morph_md_kitty_options options;
@@ -204,6 +207,7 @@ static int collect_media(struct morph_md_kitty *renderer,
 {
 	struct media_ref *media;
 	const char *path;
+	static const char marker[MEDIA_MARKER_SIZE] = {'\0'};
 
 	if (!renderer->options.media || !url || !url[0])
 		return MD_OK;
@@ -216,21 +220,18 @@ static int collect_media(struct morph_md_kitty *renderer,
 	media->path = strdup(path);
 	if (!media->type || !media->path)
 		return MD_ERR_NOMEM;
-	return MD_OK;
+	media->output_offset = renderer->snapshot_output.len;
+	return md_buf_append(&renderer->snapshot_output,
+			     marker, sizeof(marker));
 }
 
-static void emit_and_clear_media(struct morph_md_kitty *renderer, int emit)
+static void clear_media(struct morph_md_kitty *renderer)
 {
 	size_t i;
 
 	for (i = 0u; i < renderer->media.len; i++) {
 		struct media_ref *media = md_array_get(&renderer->media, i);
 
-		if (emit && renderer->options.media &&
-		    media->type && media->path) {
-			renderer->options.media(media->type, media->path,
-						renderer->options.media_user_data);
-		}
 		free(media->type);
 		free(media->path);
 	}
@@ -1042,12 +1043,10 @@ static unsigned int image_available_columns(
 static int render_image_fallback(struct morph_md_kitty *renderer,
 				 const char *url)
 {
-	int rc;
-
-	rc = collect_media(renderer,
-			   is_video_path(url) ? "video" : "image", url);
-	return rc == MD_OK ?
-		renderer_printf(renderer, "[image: %s]", url ? url : "") : rc;
+	if (renderer->options.media)
+		return collect_media(renderer,
+			is_video_path(url) ? "video" : "image", url);
+	return renderer_printf(renderer, "[image: %s]", url ? url : "");
 }
 
 static int render_image_node(struct morph_md_kitty *renderer,
@@ -2291,10 +2290,11 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		return rc;
 	}
 	if (type == CMARK_NODE_LINK) {
+		if (is_video_path(cmark_node_get_url(node)) &&
+		    renderer->options.media)
+			return collect_media(renderer, "video",
+					     cmark_node_get_url(node));
 		rc = render_children(renderer, node);
-		if (rc == MD_OK && is_video_path(cmark_node_get_url(node)))
-			rc = collect_media(renderer, "video",
-					   cmark_node_get_url(node));
 		return rc == MD_OK ?
 			renderer_printf(renderer, " (%s)", cmark_node_get_url(node)) :
 			rc;
@@ -2576,7 +2576,7 @@ static int capture_snapshot(struct morph_md_kitty *renderer,
 	if (renderer->snapshot_output.data)
 		renderer->snapshot_output.data[0] = '\0';
 	renderer->snapshot_image_index = 0u;
-	emit_and_clear_media(renderer, 0);
+	clear_media(renderer);
 	renderer->capturing_snapshot = 1;
 	renderer->content_column = renderer->options.initial_cursor_column;
 	renderer->line_started =
@@ -2668,6 +2668,55 @@ int morph_md_kitty_append(struct morph_md_kitty *renderer,
 	return MD_OK;
 }
 
+static int write_snapshot_frame(struct morph_md_kitty *renderer,
+				const char *bytes, size_t len)
+{
+	int frame_started;
+	int end_rc;
+	int rc;
+
+	if (len == 0u)
+		return MD_OK;
+	rc = morph_md_kitty_begin_frame(renderer);
+	frame_started = rc == MD_OK;
+	if (rc == MD_OK)
+		rc = renderer_write(renderer, bytes, len);
+	end_rc = frame_started ? morph_md_kitty_end_frame(renderer) : rc;
+	return rc == MD_OK ? end_rc : rc;
+}
+
+static int emit_snapshot_range(struct morph_md_kitty *renderer,
+			       size_t start, size_t end)
+{
+	struct media_ref *media;
+	size_t cursor = start;
+	size_t i;
+	int rc = MD_OK;
+
+	for (i = 0u; rc == MD_OK && i < renderer->media.len; i++) {
+		media = md_array_get(&renderer->media, i);
+		if (!media || media->output_offset < start ||
+		    media->output_offset + MEDIA_MARKER_SIZE > end)
+			continue;
+		if (media->output_offset < cursor)
+			continue;
+		rc = write_snapshot_frame(
+			renderer, renderer->snapshot_output.data + cursor,
+			media->output_offset - cursor);
+		if (rc == MD_OK && renderer->options.media &&
+		    media->type && media->path)
+			renderer->options.media(
+				media->type, media->path,
+				renderer->options.media_user_data);
+		cursor = media->output_offset + MEDIA_MARKER_SIZE;
+	}
+	if (rc == MD_OK)
+		rc = write_snapshot_frame(
+			renderer, renderer->snapshot_output.data + cursor,
+			end - cursor);
+	return rc;
+}
+
 int morph_md_kitty_render(struct morph_md_kitty *renderer)
 {
 	size_t source_len;
@@ -2677,8 +2726,6 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 	size_t stable_rows;
 	size_t emit_offset;
 	size_t emit_end;
-	int frame_started;
-	int end_rc;
 	int rc;
 
 	if (!renderer)
@@ -2727,23 +2774,15 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 	if (emit_end <= emit_offset) {
 		renderer->committed_source_len = source_len;
 		renderer->emitted_rows = stable_rows;
-		emit_and_clear_media(renderer, renderer->finalized);
+		clear_media(renderer);
 		return MD_OK;
 	}
-	rc = morph_md_kitty_begin_frame(renderer);
-	frame_started = rc == MD_OK;
-	if (rc == MD_OK && emit_end > emit_offset)
-		rc = renderer_write(renderer,
-				    renderer->snapshot_output.data + emit_offset,
-				    emit_end - emit_offset);
-	end_rc = frame_started ? morph_md_kitty_end_frame(renderer) : rc;
-	if (rc == MD_OK)
-		rc = end_rc;
+	rc = emit_snapshot_range(renderer, emit_offset, emit_end);
 	if (rc == MD_OK) {
 		renderer->committed_source_len = source_len;
 		renderer->emitted_rows = stable_rows;
 	}
-	emit_and_clear_media(renderer, rc == MD_OK && renderer->finalized);
+	clear_media(renderer);
 	return rc;
 }
 
@@ -2833,7 +2872,7 @@ void morph_md_kitty_destroy(struct morph_md_kitty *renderer)
 	md_buf_cleanup(&renderer->frame_output);
 	md_buf_cleanup(&renderer->snapshot_output);
 	md_array_cleanup(&renderer->lists);
-	emit_and_clear_media(renderer, 0);
+	clear_media(renderer);
 	md_array_cleanup(&renderer->media);
 	md_array_cleanup(&renderer->image_ids);
 	mjx_free(renderer->math);

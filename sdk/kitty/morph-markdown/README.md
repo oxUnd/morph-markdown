@@ -50,11 +50,13 @@ Local PNG images are transmitted directly with the Kitty graphics protocol.
 Block images are scaled down only when necessary to fit the content viewport;
 table images keep their intrinsic cell size and participate in column and row
 measurement. Invalid files, non-PNG formats, remote URLs and videos render a
-text placeholder instead.
+text placeholder when no media callback is configured.
 
 Set `options.media` and `options.media_user_data` to receive media references
 the SDK could not render directly. The SDK removes a leading `file://` prefix
-before invoking the callback.
+before invoking the callback. Media callbacks replace the placeholder and run
+in document order between the surrounding text writes, including during
+incremental rendering; they are not deferred until finalization.
 
 Math bitmaps are transmitted at their native pixel dimensions. The SDK uses
 Kitty's no-cursor-movement placement policy and reserves the corresponding

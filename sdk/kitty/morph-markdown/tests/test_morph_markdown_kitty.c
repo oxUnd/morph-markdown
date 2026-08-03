@@ -41,6 +41,19 @@ static void capture_media(const char *type, const char *path, void *user_data)
 	capture->count++;
 }
 
+static void capture_ordered_media(const char *type, const char *path,
+				  void *user_data)
+{
+	struct capture *capture = user_data;
+	char marker[320];
+	int len;
+
+	len = snprintf(marker, sizeof(marker), "<%s:%s>", type, path);
+	assert(len > 0);
+	assert((size_t)len < sizeof(marker));
+	assert(capture_write(marker, (size_t)len, capture) == 0);
+}
+
 static void capture_reset(struct capture *capture)
 {
 	memset(capture, 0, sizeof(*capture));
@@ -571,6 +584,97 @@ static void test_media_callback(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_media_callbacks_follow_document_order(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown =
+		"before\n\n"
+		"![plot](file:///tmp/plot.jpg)\n\n"
+		"between\n\n"
+		"[clip](file:///tmp/demo.mp4)\n\n"
+		"after";
+	const char *before;
+	const char *image;
+	const char *between;
+	const char *video;
+	const char *after;
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.media = capture_ordered_media;
+	options.media_user_data = &output;
+	options.terminal_fd = -1;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	before = strstr(output.bytes, "before");
+	image = strstr(output.bytes, "<image:/tmp/plot.jpg>");
+	between = strstr(output.bytes, "between");
+	video = strstr(output.bytes, "<video:/tmp/demo.mp4>");
+	after = strstr(output.bytes, "after");
+	assert(before && image && between && video && after);
+	assert(before < image);
+	assert(image < between);
+	assert(between < video);
+	assert(video < after);
+	assert(strstr(output.bytes, "[image: ") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_streaming_media_callbacks_emit_once_in_place(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *first =
+		"before\n\n"
+		"![plot](file:///tmp/stream.jpg)\n\n"
+		"[clip](file:///tmp/stream.mp4)\n\n";
+	const char *second = "after";
+	const char *image;
+	const char *video;
+	const char *after;
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.media = capture_ordered_media;
+	options.media_user_data = &output;
+	options.terminal_fd = -1;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, first, strlen(first), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(morph_md_kitty_append(
+		       renderer, second, strlen(second), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	image = strstr(output.bytes, "<image:/tmp/stream.jpg>");
+	video = strstr(output.bytes, "<video:/tmp/stream.mp4>");
+	after = strstr(output.bytes, "after");
+	assert(image && video && after);
+	assert(image < video);
+	assert(video < after);
+	assert(substring_count(
+		output.bytes, "<image:/tmp/stream.jpg>") == 1);
+	assert(substring_count(
+		output.bytes, "<video:/tmp/stream.mp4>") == 1);
+	morph_md_kitty_destroy(renderer);
+}
+
 static void test_local_png_renders_in_blocks_and_tables(void)
 {
 	struct morph_md_kitty_options options;
@@ -813,6 +917,8 @@ int main(void)
 	test_initial_cursor_column_refreshes_later_rows_from_margin();
 	test_heading_underline_excludes_left_padding();
 	test_media_callback();
+	test_media_callbacks_follow_document_order();
+	test_streaming_media_callbacks_emit_once_in_place();
 	test_local_png_renders_in_blocks_and_tables();
 	test_streaming_image_is_transmitted_once();
 	test_math_uses_native_size_kitty_transfer();

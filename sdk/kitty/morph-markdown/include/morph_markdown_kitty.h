@@ -28,7 +28,9 @@ struct morph_md_kitty_options {
 	/*
 	 * Receives media references the SDK could not render directly, including
 	 * remote images, invalid/non-PNG files and videos. file:// prefixes are
-	 * removed before the callback is invoked.
+	 * removed before the callback is invoked. Callbacks are invoked in document
+	 * order at the corresponding Markdown position, between ordered text
+	 * writes, and never deferred until the end of the document.
 	 */
 	void (*media)(const char *type, const char *path, void *user_data);
 	void *media_user_data;
