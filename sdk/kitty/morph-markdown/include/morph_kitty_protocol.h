@@ -14,9 +14,10 @@ typedef int (*morph_kitty_write_fn)(const char *bytes, size_t len,
 				    void *user_data);
 
 /*
- * Returns a process-unique, randomized image id suitable for Unicode
- * placeholders. The id uses all 32 bits so it does not collide with clients
- * limited to 8-bit or 24-bit placeholder ids.
+ * Returns a process-unique image id suitable for Unicode placeholders. The
+ * id is derived from the Unix timestamp for 2014-08-01 00:00:00 UTC XOR a
+ * random-starting 24-bit sequence, reducing collisions with other terminal
+ * graphics clients.
  */
 uint32_t morph_kitty_image_id_new(void);
 

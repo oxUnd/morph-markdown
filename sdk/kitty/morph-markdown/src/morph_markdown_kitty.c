@@ -83,12 +83,10 @@ struct morph_md_kitty {
 	struct md_buf snapshot_output;
 	struct md_array lists;
 	struct md_array media;
-	struct md_array image_ids;
 	mjx_ctx *math;
 	unsigned int viewport_columns;
 	unsigned int viewport_rows;
 	unsigned int content_column;
-	size_t snapshot_image_index;
 	size_t committed_source_len;
 	size_t emitted_rows;
 	int line_started;
@@ -132,25 +130,6 @@ static unsigned int image_available_columns(
 static int placeholder_write(const char *bytes, size_t len, void *user_data)
 {
 	return renderer_write(user_data, bytes, len);
-}
-
-static int next_snapshot_image_id(struct morph_md_kitty *renderer,
-				  unsigned int *image_id)
-{
-	uint32_t *stored;
-
-	if (renderer->snapshot_image_index < renderer->image_ids.len) {
-		stored = md_array_get(&renderer->image_ids,
-				      renderer->snapshot_image_index);
-	} else {
-		stored = md_array_push(&renderer->image_ids);
-		if (!stored)
-			return MD_ERR_NOMEM;
-		*stored = morph_kitty_image_id_new();
-	}
-	renderer->snapshot_image_index++;
-	*image_id = *stored;
-	return MD_OK;
 }
 
 static int render_placeholder_row(struct morph_md_kitty *renderer,
@@ -648,11 +627,7 @@ static int send_kitty_rgba(struct morph_md_kitty *renderer,
 	rgba = copy_rgba_pixels(buffer, &byte_count);
 	if (!rgba)
 		return MD_ERR_NOMEM;
-	rc = next_snapshot_image_id(renderer, image_id);
-	if (rc != MD_OK) {
-		free(rgba);
-		return rc;
-	}
+	*image_id = morph_kitty_image_id_new();
 	rc = MD_OK;
 	while (offset < byte_count) {
 		chunk_size = byte_count - offset;
@@ -834,11 +809,7 @@ static int send_kitty_png_file(struct morph_md_kitty *renderer,
 	file = fopen(path, "rb");
 	if (!file)
 		return -errno;
-	rc = next_snapshot_image_id(renderer, image_id);
-	if (rc != MD_OK) {
-		fclose(file);
-		return rc;
-	}
+	*image_id = morph_kitty_image_id_new();
 	remaining = (size_t)info.st_size;
 	while (remaining > 0u && rc == MD_OK) {
 		chunk_size = remaining < raw_chunk_size ?
@@ -2575,7 +2546,6 @@ static int capture_snapshot(struct morph_md_kitty *renderer,
 	renderer->snapshot_output.len = 0u;
 	if (renderer->snapshot_output.data)
 		renderer->snapshot_output.data[0] = '\0';
-	renderer->snapshot_image_index = 0u;
 	clear_media(renderer);
 	renderer->capturing_snapshot = 1;
 	renderer->content_column = renderer->options.initial_cursor_column;
@@ -2649,7 +2619,6 @@ struct morph_md_kitty *morph_md_kitty_create(
 	md_buf_init(&renderer->snapshot_output);
 	md_array_init(&renderer->lists, sizeof(struct list_state));
 	md_array_init(&renderer->media, sizeof(struct media_ref));
-	md_array_init(&renderer->image_ids, sizeof(uint32_t));
 	return renderer;
 }
 
@@ -2855,7 +2824,6 @@ int morph_md_kitty_clear(struct morph_md_kitty *renderer)
 		renderer->line_started = 0;
 		renderer->committed_source_len = 0u;
 		renderer->emitted_rows = 0u;
-		renderer->image_ids.len = 0u;
 	}
 	return rc;
 }
@@ -2874,7 +2842,6 @@ void morph_md_kitty_destroy(struct morph_md_kitty *renderer)
 	md_array_cleanup(&renderer->lists);
 	clear_media(renderer);
 	md_array_cleanup(&renderer->media);
-	md_array_cleanup(&renderer->image_ids);
 	mjx_free(renderer->math);
 	free(renderer);
 }

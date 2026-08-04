@@ -64,7 +64,10 @@ static const char *const kitty_diacritics[MORPH_KITTY_PLACEHOLDER_LIMIT] = {
 	"\uA8E2", "\uA8E3", "\uA8E4", "\uA8E5"
 };
 
-static atomic_uint_fast32_t next_image_id;
+#define MORPH_KITTY_IMAGE_ID_EPOCH 1406851200u
+#define MORPH_KITTY_IMAGE_ID_MASK 0x00ffffffu
+
+static atomic_uint_fast32_t next_image_sequence;
 
 static int random_bytes(unsigned char *bytes, size_t len)
 {
@@ -104,32 +107,35 @@ static int valid_placeholder_id(uint32_t id)
 		(id & 0x00ffff00u) != 0u;
 }
 
-static uint32_t random_seed(void)
+static uint32_t random_sequence_seed(void)
 {
 	uint32_t seed = 0u;
 
-	while (!valid_placeholder_id(seed)) {
+	while ((seed & MORPH_KITTY_IMAGE_ID_MASK) == 0u) {
 		if (random_bytes((unsigned char *)&seed, sizeof(seed)) != 0)
-			seed = 0xa5c30001u;
+			seed = 0x00c30001u;
 	}
-	return seed;
+	return seed & MORPH_KITTY_IMAGE_ID_MASK;
 }
 
 uint32_t morph_kitty_image_id_new(void)
 {
 	uint_fast32_t expected = 0u;
-	uint_fast32_t seed;
+	uint_fast32_t sequence;
 	uint32_t id;
 
-	if (atomic_load_explicit(&next_image_id, memory_order_relaxed) == 0u) {
-		seed = random_seed();
+	if (atomic_load_explicit(
+		    &next_image_sequence, memory_order_relaxed) == 0u) {
+		sequence = random_sequence_seed();
 		(void)atomic_compare_exchange_strong_explicit(
-			&next_image_id, &expected, seed,
+			&next_image_sequence, &expected, sequence,
 			memory_order_relaxed, memory_order_relaxed);
 	}
 	do {
-		id = (uint32_t)atomic_fetch_add_explicit(
-			&next_image_id, 1u, memory_order_relaxed);
+		sequence = atomic_fetch_add_explicit(
+			&next_image_sequence, 1u, memory_order_relaxed);
+		id = MORPH_KITTY_IMAGE_ID_EPOCH ^
+			((uint32_t)sequence & MORPH_KITTY_IMAGE_ID_MASK);
 	} while (!valid_placeholder_id(id));
 	return id;
 }

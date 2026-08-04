@@ -110,6 +110,21 @@ static int substring_count(const char *text, const char *needle)
 	return count;
 }
 
+static const char *next_kitty_image_id(const char *output,
+				       unsigned int *image_id)
+{
+	const char *command;
+	const char *id;
+
+	command = strstr(output, "\033_Ga=T,");
+	if (!command)
+		return NULL;
+	id = strstr(command, ",i=");
+	if (!id || sscanf(id, ",i=%u", image_id) != 1)
+		return NULL;
+	return id + 3u;
+}
+
 static void test_stream_render_and_final(void)
 {
 	struct morph_md_kitty_options options;
@@ -682,6 +697,9 @@ static void test_local_png_renders_in_blocks_and_tables(void)
 	struct capture output;
 	char path[128];
 	char markdown[512];
+	const char *next;
+	unsigned int first_image_id;
+	unsigned int second_image_id;
 
 	snprintf(path, sizeof(path),
 		 "/tmp/morph-markdown-kitty-test-%ld.png", (long)getpid());
@@ -710,6 +728,13 @@ static void test_local_png_renders_in_blocks_and_tables(void)
 	assert(strstr(output.bytes, ",U=1,q=2,c=1,r=1,m=0;") != NULL);
 	assert(strstr(output.bytes, "\364\216\273\256") != NULL);
 	assert(strstr(output.bytes, "[image:") == NULL);
+	next = next_kitty_image_id(output.bytes, &first_image_id);
+	assert(next != NULL);
+	next = next_kitty_image_id(next, &second_image_id);
+	assert(next != NULL);
+	assert((first_image_id & 0xff000000u) == 0x53000000u);
+	assert((second_image_id & 0xff000000u) == 0x53000000u);
+	assert(first_image_id != second_image_id);
 	morph_md_kitty_destroy(renderer);
 	assert(unlink(path) == 0);
 }
