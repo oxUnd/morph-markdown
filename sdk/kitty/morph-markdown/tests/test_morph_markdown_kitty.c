@@ -360,8 +360,37 @@ static void test_table_code_is_atomic_and_tabs_are_stable(void)
 	assert(morph_md_kitty_render(renderer) == 0);
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
-	assert(strstr(output.bytes, "│ `abcdefghij` │\n") != NULL);
+	assert(strstr(output.bytes,
+		      "│ \033[7m abcdefghij \033[27m │\n") != NULL);
+	assert(strstr(output.bytes, "`abcdefghij`") == NULL);
 	assert(strstr(output.bytes, "│ a    b       │\n") != NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_inline_code_uses_terminal_style(void)
+{
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	const char *markdown = "Run `morph --help` now.\n";
+
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 80u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes,
+		      "Run \033[7m morph --help \033[27m now.") != NULL);
+	assert(strstr(output.bytes, "`morph --help`") == NULL);
 	morph_md_kitty_destroy(renderer);
 }
 
@@ -934,6 +963,7 @@ int main(void)
 	test_table_wraps_to_viewport();
 	test_table_cjk_and_long_word_wrapping();
 	test_table_code_is_atomic_and_tabs_are_stable();
+	test_inline_code_uses_terminal_style();
 	test_table_default_emoji_widths();
 	test_links_show_destination_in_text_and_tables();
 	test_content_padding_and_wrapping();

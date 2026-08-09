@@ -40,6 +40,8 @@ must return zero on success.
 
 Fenced code blocks render as a terminal-native panel with a colored language
 label, a subtle left rail and ANSI syntax highlighting.
+Inline code renders without its Markdown delimiters, using padded reverse-video
+terminal styling, and remains an atomic inline item.
 The built-in highlighter recognizes C, C++, Java, Python, Rust, Go,
 JavaScript/TypeScript, Ruby, PHP, Swift, Kotlin, Scala, shell, SQL, Lua, Perl,
 Haskell, R, Make, TOML, YAML and JSON, including common aliases such as `js`,

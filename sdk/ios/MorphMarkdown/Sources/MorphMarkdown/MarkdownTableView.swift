@@ -319,6 +319,9 @@ private extension UIView {
 	}
 
 	func tableMinIntrinsicWidth() -> CGFloat {
+		if let code = self as? InlineCodeLabel {
+			return code.tableMinimumWidth
+		}
 		if let inline = self as? InlineLayoutView {
 			return inline.contentInsets.left +
 				(inline.subviews.map { $0.tableMinIntrinsicWidth() }.max() ?? 0) +

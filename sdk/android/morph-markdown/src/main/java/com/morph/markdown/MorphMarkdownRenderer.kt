@@ -5,11 +5,8 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
-import android.text.style.BackgroundColorSpan
 import android.text.style.ClickableSpan
-import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
-import android.text.style.TypefaceSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -343,9 +340,9 @@ class MorphMarkdownRenderer(
 		link: LinkTarget?
 	): Boolean {
 		return when (child.optString("kind")) {
-			"text" -> appendSpannableText(out, child.optString("literal"), role, state, link, code = false)
-			"code" -> appendSpannableText(out, child.optString("literal"), role, state, link, code = true)
-			"soft_break", "hard_break" -> appendSpannableText(out, "\n", role, state, link, code = false)
+			"text" -> appendSpannableText(out, child.optString("literal"), role, state, link)
+			"code" -> false
+			"soft_break", "hard_break" -> appendSpannableText(out, "\n", role, state, link)
 			"link" -> appendSpannableLink(out, child, role, state)
 			"strong" -> appendStyledSpannable(out, child, role, state, link, android.graphics.Typeface.BOLD)
 			"emph" -> appendStyledSpannable(out, child, role, state, link, android.graphics.Typeface.ITALIC)
@@ -376,11 +373,11 @@ class MorphMarkdownRenderer(
 		state: InlineSpanState
 	): Boolean {
 		val url = child.optString("url", "")
-		if (url.isEmpty()) return appendSpannableText(out, plainText(child), role, state, null, code = false)
+		if (url.isEmpty()) return appendSpannableText(out, plainText(child), role, state, null)
 		val target = LinkTarget(url, child.optString("title").ifEmpty { null })
 		val children = child.optJSONArray("children")
 		if (children == null || children.length() == 0) {
-			return appendSpannableText(out, url, role, state, target, code = false)
+			return appendSpannableText(out, url, role, state, target)
 		}
 		return appendSpannableChildren(out, children, role, state, target)
 	}
@@ -390,16 +387,14 @@ class MorphMarkdownRenderer(
 		value: String,
 		role: TableCellRole,
 		state: InlineSpanState,
-		link: LinkTarget?,
-		code: Boolean
+		link: LinkTarget?
 	): Boolean {
 		val start = out.length
 		val expanded = expandTabs(value, theme.tabSize)
-		out.append(processedText(expanded, theme, allowCjkSpacing = !code))
+		out.append(processedText(expanded, theme, allowCjkSpacing = true))
 		val end = out.length
 		if (end <= start) return true
 		if (TextBreakRules.hasEmergencyBreak(expanded)) state.hasEmergencyTextBreak = true
-		if (code) applyInlineCodeSpans(out, start, end, role)
 		if (link != null) {
 			state.hasLink = true
 			out.setSpan(
@@ -410,15 +405,6 @@ class MorphMarkdownRenderer(
 			)
 		}
 		return true
-	}
-
-	private fun applyInlineCodeSpans(out: SpannableStringBuilder, start: Int, end: Int, role: TableCellRole) {
-		out.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-		out.setSpan(BackgroundColorSpan(theme.inlineCodeBackgroundColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-		val ratio = theme.inlineCodeTextSizeSp / tableTextSize(role)
-		if (kotlin.math.abs(ratio - 1f) > 0.01f) {
-			out.setSpan(RelativeSizeSpan(ratio), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-		}
 	}
 
 	private fun spannedTextView(
@@ -700,9 +686,6 @@ class MorphMarkdownRenderer(
 			applyTableTextStyle(role)
 			setSingleLine(true)
 			setHorizontallyScrolling(true)
-			if (role != TableCellRole.None && theme.tableCellWrap) {
-				maxWidth = context.dp((theme.tableCellMaxWidthDp * 0.78f).toInt())
-			}
 			setPadding(
 				context.dp(theme.inlineCodePaddingHorizontalDp),
 				context.dp(theme.inlineCodePaddingVerticalDp),

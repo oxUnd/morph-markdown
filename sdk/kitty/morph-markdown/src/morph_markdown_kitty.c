@@ -1685,14 +1685,7 @@ static int table_wrap_atomic_item(struct table_wrap_state *state,
 	if (item->kind == TABLE_ITEM_MATH ||
 	    item->kind == TABLE_ITEM_IMAGE)
 		return table_line_append_visual(state->line, item);
-	rc = table_line_append_text(state->line, "`", 1u, 1u);
-	if (rc == MD_OK)
-		rc = table_line_append_text(
-			state->line, item->text, strlen(item->text),
-			item->width - 2u);
-	if (rc == MD_OK)
-		rc = table_line_append_text(state->line, "`", 1u, 1u);
-	return rc;
+	return table_line_append_visual(state->line, item);
 }
 
 static int table_cell_wrap(struct table_cell_text *cell, unsigned int width)
@@ -1872,6 +1865,23 @@ static int render_table_visual_row(struct morph_md_kitty *renderer,
 		renderer, item->image_id, row, item->width);
 }
 
+static int render_inline_code(struct morph_md_kitty *renderer,
+			      const char *literal)
+{
+	int rc;
+	int reset_rc;
+
+	rc = renderer_control_puts(renderer, "\033[7m");
+	if (rc == MD_OK)
+		rc = renderer_putc(renderer, ' ');
+	if (rc == MD_OK)
+		rc = renderer_puts(renderer, literal ? literal : "");
+	if (rc == MD_OK)
+		rc = renderer_putc(renderer, ' ');
+	reset_rc = renderer_control_puts(renderer, "\033[27m");
+	return rc == MD_OK ? reset_rc : rc;
+}
+
 static int render_table_cell_line(struct morph_md_kitty *renderer,
 				  struct table_cell_line *line,
 				  unsigned int line_row)
@@ -1888,6 +1898,8 @@ static int render_table_cell_line(struct morph_md_kitty *renderer,
 		    piece->kind == TABLE_ITEM_IMAGE) {
 			rc = render_table_visual_row(
 				renderer, piece->item, line_row);
+		} else if (piece->kind == TABLE_ITEM_CODE && line_row == 0u) {
+			rc = render_inline_code(renderer, piece->item->text);
 		} else if (line_row == 0u) {
 			rc = renderer_visible_write(
 				renderer, piece->text.data, piece->text.len);
@@ -2272,7 +2284,7 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 	}
 	if (type == CMARK_NODE_CODE && literal) {
 		renderer->wrap_suppression++;
-		rc = renderer_printf(renderer, "`%s`", literal);
+		rc = render_inline_code(renderer, literal);
 		renderer->wrap_suppression--;
 		return rc;
 	}

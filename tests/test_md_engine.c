@@ -690,6 +690,38 @@ static int test_event_json_api(void)
 	return 0;
 }
 
+static int test_inline_code_node(void)
+{
+	struct morph_md_engine_options opts = {0};
+	struct morph_md_engine *engine;
+	char *snapshot;
+	const char *markdown = "before `xxx` after\n";
+
+	engine = new_engine(&opts, NULL, NULL);
+	if (!engine)
+		return 140;
+	if (morph_md_engine_append(
+		    engine, markdown, strlen(markdown), 1) != 0) {
+		morph_md_engine_destroy(engine);
+		return 141;
+	}
+	snapshot = snapshot_json(engine);
+	if (!snapshot) {
+		morph_md_engine_destroy(engine);
+		return 142;
+	}
+	if (!contains(snapshot, "\"kind\":\"code\"") ||
+	    !contains(snapshot, "\"literal\":\"xxx\"")) {
+		fprintf(stderr, "%s\n", snapshot);
+		morph_md_free(snapshot);
+		morph_md_engine_destroy(engine);
+		return 143;
+	}
+	morph_md_free(snapshot);
+	morph_md_engine_destroy(engine);
+	return 0;
+}
+
 int main(void)
 {
 	int rc;
@@ -763,6 +795,10 @@ int main(void)
 		return rc;
 
 	rc = test_event_json_api();
+	if (rc != 0)
+		return rc;
+
+	rc = test_inline_code_node();
 	if (rc != 0)
 		return rc;
 

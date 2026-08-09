@@ -9,7 +9,6 @@ private struct LinkTarget {
 private struct InlineTextStyle {
 	var bold = false
 	var italic = false
-	var code = false
 	var link: LinkTarget?
 }
 
@@ -88,8 +87,7 @@ extension MorphMarkdownRenderer {
 			case "text":
 				appendAttributedText(node.literal ?? "", to: output, style: next, role: role)
 			case "code":
-				next.code = true
-				appendAttributedText(node.literal ?? "", to: output, style: next, role: role)
+				return false
 			case "soft_break", "hard_break":
 				appendAttributedText("\n", to: output, style: next, role: role)
 			case "strong":
@@ -124,7 +122,7 @@ extension MorphMarkdownRenderer {
 		role: TableCellRole
 	) {
 		let expanded = expandTabs(value, tabSize: theme.tabSize)
-		let text = processedText(expanded, theme: theme, allowCjkSpacing: !style.code)
+		let text = processedText(expanded, theme: theme, allowCjkSpacing: true)
 		let paragraph = NSMutableParagraphStyle()
 		paragraph.lineHeightMultiple = role == .none ? theme.bodyLineHeightMultiplier : theme.tableCellLineHeightMultiplier
 		var attributes: [NSAttributedString.Key: Any] = [
@@ -132,9 +130,6 @@ extension MorphMarkdownRenderer {
 			.foregroundColor: style.link == nil ? tableTextColor(role) : UIColor(argb: theme.linkTextColor),
 			.paragraphStyle: paragraph
 		]
-		if style.code {
-			attributes[.backgroundColor] = UIColor(argb: theme.inlineCodeBackgroundColor)
-		}
 		if let link = style.link, let url = URL(string: link.url) {
 			attributes[.link] = url
 			attributes[.underlineStyle] = theme.linkUnderline ? NSUnderlineStyle.single.rawValue : 0
@@ -143,9 +138,6 @@ extension MorphMarkdownRenderer {
 	}
 
 	private func attributedFont(_ style: InlineTextStyle, role: TableCellRole) -> UIFont {
-		if style.code {
-			return UIFont.monospacedSystemFont(ofSize: theme.inlineCodeTextSize, weight: style.bold ? .bold : .regular)
-		}
 		let size = tableTextSize(role)
 		let base = morphFont(theme: theme, size: size, bold: style.bold)
 		let traits = base.fontDescriptor.symbolicTraits.union(.traitItalic)
@@ -302,11 +294,12 @@ extension MorphMarkdownRenderer {
 	}
 
 	func inlineCode(_ code: String, role: TableCellRole) -> UIView {
-		if role != .none, theme.tableCellWrap {
-			return wrappingInlineCode(code, role: role)
-		}
-		let label = cellText(expandTabs(code, tabSize: theme.tabSize), role: role, expand: false)
+		let label = InlineCodeLabel()
+		label.numberOfLines = 1
+		label.lineBreakMode = .byClipping
 		label.font = UIFont.monospacedSystemFont(ofSize: theme.inlineCodeTextSize, weight: .regular)
+		label.textColor = tableTextColor(role)
+		label.text = expandTabs(code, tabSize: theme.tabSize)
 		label.contentInsets = UIEdgeInsets(top: theme.inlineCodePaddingVertical,
 						   left: theme.inlineCodePaddingHorizontal,
 						   bottom: theme.inlineCodePaddingVertical,
@@ -320,21 +313,6 @@ extension MorphMarkdownRenderer {
 			return text.map { String($0) }
 		}
 		return InlineTextFragmenter.fragments(text)
-	}
-
-	private func wrappingInlineCode(_ code: String, role: TableCellRole) -> UIView {
-		let row = InlineLayoutView()
-		row.contentInsets = UIEdgeInsets(top: theme.inlineCodePaddingVertical,
-						 left: theme.inlineCodePaddingHorizontal,
-						 bottom: theme.inlineCodePaddingVertical,
-						 right: theme.inlineCodePaddingHorizontal)
-		row.backgroundColor = UIColor(argb: theme.inlineCodeBackgroundColor)
-		for fragment in expandTabs(code, tabSize: theme.tabSize).map({ String($0) }) {
-			let label = cellText(fragment, role: role, expand: false, allowCjkSpacing: false)
-			label.font = UIFont.monospacedSystemFont(ofSize: theme.inlineCodeTextSize, weight: .regular)
-			row.addSubview(label)
-		}
-		return row
 	}
 
 	func cellText(_ value: String, role: TableCellRole, expand: Bool = true, allowCjkSpacing: Bool = true) -> InsetLabel {
@@ -405,6 +383,13 @@ extension MorphMarkdownRenderer {
 		case .none:
 			return theme.bodyTextSize
 		}
+	}
+}
+
+final class InlineCodeLabel: InsetLabel, TableIntrinsicOverride {
+	var tableMinimumWidth: CGFloat {
+		sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude,
+				       height: CGFloat.greatestFiniteMagnitude)).width
 	}
 }
 
