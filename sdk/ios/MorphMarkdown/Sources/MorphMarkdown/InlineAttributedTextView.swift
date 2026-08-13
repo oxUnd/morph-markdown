@@ -4,6 +4,7 @@ import UIKit
 final class InlineAttributedLabel: UILabel, TableIntrinsicOverride {
 	let contentInsets: UIEdgeInsets
 	private var measurementCache: [CGFloat: CGSize] = [:]
+	private var measuredLayoutWidth: CGFloat = 0
 	private(set) var measurementComputationCount = 0
 
 	override var attributedText: NSAttributedString? {
@@ -55,13 +56,44 @@ final class InlineAttributedLabel: UILabel, TableIntrinsicOverride {
 	}
 
 	override var intrinsicContentSize: CGSize {
-		guard bounds.width > 0 else {
+		let width = bounds.width > 0 ? bounds.width : measuredLayoutWidth
+		guard width > 0 else {
 			return CGSize(width: UIView.noIntrinsicMetric, height: super.intrinsicContentSize.height)
 		}
 		let height = sizeThatFits(
-			CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+			CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
 		).height
 		return CGSize(width: UIView.noIntrinsicMetric, height: height)
+	}
+
+	override func systemLayoutSizeFitting(
+		_ targetSize: CGSize,
+		withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+		verticalFittingPriority: UILayoutPriority
+	) -> CGSize {
+		let requiredWidth = horizontalFittingPriority == .required &&
+			targetSize.width > 0 && targetSize.width < CGFloat.greatestFiniteMagnitude
+		let width = requiredWidth ? targetSize.width : bounds.width
+		guard width > 0 else {
+			return super.systemLayoutSizeFitting(
+				targetSize,
+				withHorizontalFittingPriority: horizontalFittingPriority,
+				verticalFittingPriority: verticalFittingPriority
+			)
+		}
+		let fit = sizeThatFits(
+			CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+		)
+		return CGSize(width: requiredWidth ? width : fit.width, height: fit.height)
+	}
+
+	override func layoutSubviews() {
+		super.layoutSubviews()
+		guard bounds.width > 0, abs(bounds.width - measuredLayoutWidth) > 0.5 else {
+			return
+		}
+		measuredLayoutWidth = bounds.width
+		invalidateIntrinsicContentSize()
 	}
 
 	var tableMinimumWidth: CGFloat {

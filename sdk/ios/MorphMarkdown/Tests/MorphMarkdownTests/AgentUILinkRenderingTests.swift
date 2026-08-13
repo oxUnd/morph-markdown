@@ -65,6 +65,29 @@ final class AgentUILinkRenderingTests: XCTestCase {
 		XCTAssertEqual(view.intrinsicContentSize.width, UIView.noIntrinsicMetric)
 	}
 
+	func testChineseParagraphKeepsEveryWrappedLineAtNarrowWidth() throws {
+		let markdown = "根据中外主流媒体（法广、美联社、CNN、NBC、共同社、观察者网等）的报道整理如下。"
+		let view = MorphMarkdownUIView()
+		view.layoutMode = .intrinsicHeight
+		view.setMarkdown(markdown)
+
+		let width: CGFloat = 350
+		let fit = view.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
+		view.frame = CGRect(x: 0, y: 0, width: width, height: fit.height)
+		view.layoutIfNeeded()
+
+		let paragraph = try XCTUnwrap(firstAttributedLabel(in: view))
+		let requiredHeight = paragraph.sizeThatFits(
+			CGSize(width: paragraph.bounds.width, height: CGFloat.greatestFiniteMagnitude)
+		).height
+		XCTAssertGreaterThan(requiredHeight, paragraph.font.lineHeight)
+		XCTAssertGreaterThanOrEqual(
+			paragraph.bounds.height + 0.5,
+			requiredHeight,
+			"The paragraph frame must include every wrapped Chinese line."
+		)
+	}
+
 	func testFinalAppendCompletesDeferredRender() {
 		let rendered = expectation(description: "final append rendered")
 		let view = MorphMarkdownUIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
