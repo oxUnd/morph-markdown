@@ -1420,8 +1420,6 @@ static void measure_table_cell(struct table_cell_text *cell)
 			current = 0u;
 			continue;
 		}
-		if (item->kind == TABLE_ITEM_CODE)
-			item->width += 2u;
 		current += item->width;
 		if (item->kind != TABLE_ITEM_TEXT) {
 			if (item->width > minimum)
@@ -1871,14 +1869,10 @@ static int render_inline_code(struct morph_md_kitty *renderer,
 	int rc;
 	int reset_rc;
 
-	rc = renderer_control_puts(renderer, "\033[7m");
-	if (rc == MD_OK)
-		rc = renderer_putc(renderer, ' ');
+	rc = renderer_control_puts(renderer, "\033[2m");
 	if (rc == MD_OK)
 		rc = renderer_puts(renderer, literal ? literal : "");
-	if (rc == MD_OK)
-		rc = renderer_putc(renderer, ' ');
-	reset_rc = renderer_control_puts(renderer, "\033[27m");
+	reset_rc = renderer_control_puts(renderer, "\033[22m");
 	return rc == MD_OK ? reset_rc : rc;
 }
 

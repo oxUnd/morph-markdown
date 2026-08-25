@@ -361,9 +361,9 @@ static void test_table_code_is_atomic_and_tabs_are_stable(void)
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
 	assert(strstr(output.bytes,
-		      "│ \033[7m abcdefghij \033[27m │\n") != NULL);
+		      "│ \033[2mabcdefghij\033[22m │\n") != NULL);
 	assert(strstr(output.bytes, "`abcdefghij`") == NULL);
-	assert(strstr(output.bytes, "│ a    b       │\n") != NULL);
+	assert(strstr(output.bytes, "│ a    b     │\n") != NULL);
 	morph_md_kitty_destroy(renderer);
 }
 
@@ -389,7 +389,7 @@ static void test_inline_code_uses_terminal_style(void)
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
 	assert(strstr(output.bytes,
-		      "Run \033[7m morph --help \033[27m now.") != NULL);
+		      "Run \033[2mmorph --help\033[22m now.") != NULL);
 	assert(strstr(output.bytes, "`morph --help`") == NULL);
 	morph_md_kitty_destroy(renderer);
 }
