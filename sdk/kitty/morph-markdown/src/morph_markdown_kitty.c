@@ -2277,10 +2277,7 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 			rc;
 	}
 	if (type == CMARK_NODE_CODE && literal) {
-		renderer->wrap_suppression++;
-		rc = render_inline_code(renderer, literal);
-		renderer->wrap_suppression--;
-		return rc;
+		return render_inline_code(renderer, literal);
 	}
 	if (type == CMARK_NODE_CODE_BLOCK && literal) {
 		return render_code_block(renderer, node, literal);
