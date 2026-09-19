@@ -9,6 +9,7 @@ target_link_libraries(morph-md-kitty-demo PRIVATE
 
 target_compile_definitions(morph-md-kitty-demo PRIVATE
 	MORPH_MATHJAX_FONT_PATH="${MORPH_MATHJAX_DIR}/fonts/STIXTwoMath-Regular.ttf"
+	_POSIX_C_SOURCE=200809L
 )
 
 if(MORPH_MARKDOWN_BUILD_TESTS)

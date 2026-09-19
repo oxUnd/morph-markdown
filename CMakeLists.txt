@@ -46,9 +46,9 @@ target_include_directories(morph-markdown-render PUBLIC
 )
 
 target_link_libraries(morph-markdown-render PUBLIC
-	libcmark-gfm_static
-	libcmark-gfm-extensions_static
-)
+		libcmark-gfm-extensions_static
+		libcmark-gfm_static
+	)
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
 	target_compile_options(morph-markdown-render PRIVATE
@@ -106,6 +106,9 @@ elseif(MORPH_MARKDOWN_BUILD_KITTY AND EXISTS "${MORPH_MATHJAX_DIR}/include/mathj
 		${MORPH_MATHJAX_DIR}/src/third_party
 		${FREETYPE_INCLUDE_DIRS}
 		${HARFBUZZ_INCLUDE_DIRS}
+	)
+	target_compile_definitions(morph-mathjax PRIVATE
+		_POSIX_C_SOURCE=200809L
 	)
 	target_link_directories(morph-mathjax PUBLIC
 		${FREETYPE_LIBRARY_DIRS}

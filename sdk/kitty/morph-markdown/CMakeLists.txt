@@ -36,6 +36,10 @@ target_link_libraries(morph-markdown-kitty PUBLIC
 	MorphMarkdown::KittyProtocol
 )
 
+target_compile_definitions(morph-markdown-kitty PRIVATE
+	_POSIX_C_SOURCE=200809L
+)
+
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
 	target_compile_options(morph-markdown-kitty PRIVATE
 		-Wall -Wextra -Wpedantic -Wshadow -Wconversion
