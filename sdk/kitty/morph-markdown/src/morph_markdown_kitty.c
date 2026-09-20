@@ -1030,6 +1030,8 @@ static int render_image_node(struct morph_md_kitty *renderer,
 	unsigned int rows;
 	int rc;
 
+	if (renderer->options.media)
+		return render_image_fallback(renderer, url);
 	path = local_image_path(url);
 	if (!path || read_png_dimensions(path, &pixels) != MD_OK) {
 		free(path);

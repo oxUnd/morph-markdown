@@ -634,8 +634,13 @@ static void test_media_callback(void)
 	struct morph_md_kitty *renderer;
 	struct capture output;
 	struct media_capture media;
-	const char *markdown = "![plot](file:///tmp/plot.png)";
+	char path[128];
+	char markdown[256];
 
+	snprintf(path, sizeof(path),
+		 "/tmp/morph-markdown-kitty-callback-%ld.png", (long)getpid());
+	assert(write_test_png(path) == 0);
+	snprintf(markdown, sizeof(markdown), "![plot](file://%s)", path);
 	memset(&options, 0, sizeof(options));
 	memset(&output, 0, sizeof(output));
 	memset(&media, 0, sizeof(media));
@@ -650,8 +655,12 @@ static void test_media_callback(void)
 	assert(morph_md_kitty_render(renderer) == 0);
 	assert(media.count == 1);
 	assert(strcmp(media.type, "image") == 0);
-	assert(strcmp(media.path, "/tmp/plot.png") == 0);
+	assert(strcmp(media.path, path) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	assert(strstr(output.bytes, "\033_Ga=T,f=100,") == NULL);
 	morph_md_kitty_destroy(renderer);
+	assert(unlink(path) == 0);
 }
 
 static void test_media_callbacks_follow_document_order(void)
