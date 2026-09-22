@@ -57,6 +57,7 @@ if(MORPH_MARKDOWN_BUILD_TESTS)
 		${PROJECT_SOURCE_DIR}/src
 	)
 	target_compile_definitions(test_morph_markdown_kitty PRIVATE
+		_POSIX_C_SOURCE=200809L
 		MORPH_TEST_MATH_FONT_PATH="${MORPH_MATHJAX_DIR}/fonts/STIXTwoMath-Regular.ttf"
 	)
 	if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
