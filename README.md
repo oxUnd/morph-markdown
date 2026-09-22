@@ -27,6 +27,11 @@ SDKs render the serialized IR with native views.
   `insert` event per top-level block plus a `seal` event with offset, length, and
   content hash metadata.
 - Images: emitted as Markdown image/link nodes; platform adapters load images.
+  Kitty hosts can configure `load_image` / `release_image` to resolve any
+  supported format or remote URL to a temporary local PNG. The SDK caches the
+  result and owns all image placement, including table cells and streaming.
+  Failed loads remain placeholders in the original position; the loader must
+  never write terminal output. Temporary files are released on renderer destroy.
 - Math: optional IR split into `math_inline` and `math_block` nodes. Rendering
   is a platform plugin responsibility.
 - HTML: controlled by `html_policy`: passthrough, strip, or downgrade to text.

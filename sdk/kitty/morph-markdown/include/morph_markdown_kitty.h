@@ -27,7 +27,9 @@ struct morph_md_kitty_options {
 	void *user_data;
 	/*
 	 * Receives media references the SDK could not render directly, including
-	 * remote images, invalid/non-PNG files and videos. file:// prefixes are
+	 * remote images, invalid/non-PNG files and videos when no image loader is
+	 * configured. With load_image, image failures stay in layout and only
+	 * videos use this callback. file:// prefixes are
 	 * removed before the callback is invoked. Callbacks are invoked in document
 	 * order at the corresponding Markdown position, between ordered text
 	 * writes, and never deferred until the end of the document.
@@ -51,6 +53,15 @@ struct morph_md_kitty_options {
 	 * content_padding_left_columns.
 	 */
 	unsigned int initial_cursor_column;
+	/* Resolve an image URL to a local PNG without writing to the terminal.
+	 * The SDK caches successes and failures for this renderer's lifetime.
+	 * Return 0 with an allocated path on success, nonzero with NULL on failure.
+	 * release_image releases the path at destroy (NULL defaults to free).
+	 * Failed images remain placeholders in their original layout position.
+	 */
+	int (*load_image)(const char *url, char **path, void *user_data);
+	void (*release_image)(char *path, void *user_data);
+	void *image_user_data;
 };
 
 struct morph_md_kitty;

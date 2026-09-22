@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -1106,9 +1107,80 @@ static void test_fenced_code_uses_syntax_highlighting(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+struct loader_capture {
+	const char *path;
+	int loads;
+	int releases;
+};
+
+static int load_test_image(const char *url, char **path, void *user)
+{
+	struct loader_capture *capture = user;
+
+	capture->loads++;
+	*path = strstr(url, "missing") ? NULL : strdup(capture->path);
+	return *path ? 0 : -1;
+}
+
+static void release_test_image(char *path, void *user)
+{
+	struct loader_capture *capture = user;
+
+	capture->releases++;
+	free(path);
+}
+
+static void test_loaded_images_keep_table_layout_and_stream_cache(void)
+{
+	struct morph_md_kitty_options options = {0};
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	struct media_capture media = {0};
+	char path[] = "/tmp/morph-kitty-loader-XXXXXX";
+	int fd = mkstemp(path);
+	struct loader_capture loader = {path, 0, 0};
+	const char *markdown =
+		"| image | text |\n|---|---|\n"
+		"| ![](https://example.test/a.jpg) | short |\n"
+		"| ![](https://example.test/a.jpg) | `code` |\n"
+		"| ![](missing.webp) | missing |\n\n";
+	const char *tail = "![](https://example.test/a.jpg)\n\nAfter\n";
+
+	assert(fd >= 0);
+	close(fd);
+	assert(write_test_png(path) == 0);
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 80u;
+	options.media = capture_media;
+	options.media_user_data = &media;
+	options.load_image = load_test_image;
+	options.release_image = release_test_image;
+	options.image_user_data = &loader;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(renderer, markdown, strlen(markdown), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(morph_md_kitty_append(renderer, tail, strlen(tail), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	output.bytes[output.len] = '\0';
+	assert(loader.loads == 2);
+	assert(media.count == 0);
+	assert(substring_count(output.bytes, "\033_Ga=T,f=100,") == 3);
+	assert(strstr(output.bytes, "[image unavailable: missing.webp]") != NULL);
+	assert_table_border_columns(output.bytes);
+	morph_md_kitty_destroy(renderer);
+	assert(loader.releases == 1);
+	assert(unlink(path) == 0);
+}
+
 int main(void)
 {
 	test_stream_render_and_final();
+	test_loaded_images_keep_table_layout_and_stream_cache();
 	test_clear_sequence();
 	test_incremental_render_preserves_scrollback();
 	test_streaming_table_stays_in_live_tail();

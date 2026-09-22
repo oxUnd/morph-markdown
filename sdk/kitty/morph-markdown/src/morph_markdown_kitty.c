@@ -2,6 +2,7 @@
 #include "morph_kitty_protocol.h"
 #include "base/md_array.h"
 #include "base/md_buf.h"
+#include "base/md_strmap.h"
 #include "base/md_error.h"
 #include "base/md_table_layout.h"
 #include "base/md_width.h"
@@ -83,6 +84,8 @@ struct morph_md_kitty {
 	struct md_buf snapshot_output;
 	struct md_array lists;
 	struct md_array media;
+	struct md_array images;
+	struct md_strmap image_paths;
 	mjx_ctx *math;
 	unsigned int viewport_columns;
 	unsigned int viewport_rows;
@@ -730,7 +733,7 @@ static int read_png_dimensions(const char *path,
 		MD_OK : MD_ERR_PARSE;
 }
 
-static char *local_image_path(const char *url)
+static char *local_image_path(struct morph_md_kitty *renderer, const char *url)
 {
 	const char *path;
 	const char *suffix;
@@ -739,6 +742,24 @@ static char *local_image_path(const char *url)
 
 	if (!url || !url[0])
 		return NULL;
+	if (renderer->options.load_image) {
+		char **image;
+
+		if (md_strmap_contains(&renderer->image_paths, url)) {
+			path = md_strmap_get(&renderer->image_paths, url);
+			return path ? strdup(path) : NULL;
+		}
+		if (md_strmap_set(&renderer->image_paths, url, NULL) != MD_OK)
+			return NULL;
+		image = md_array_push(&renderer->images);
+		if (!image)
+			return NULL;
+		*image = NULL;
+		(void)renderer->options.load_image(url, image,
+					 renderer->options.image_user_data);
+		(void)md_strmap_set(&renderer->image_paths, url, *image);
+		return *image ? strdup(*image) : NULL;
+	}
 	if (strncmp(url, "file://", 7u) == 0)
 		path = url + 7u;
 	else if (!strstr(url, "://"))
@@ -1014,10 +1035,12 @@ static unsigned int image_available_columns(
 static int render_image_fallback(struct morph_md_kitty *renderer,
 				 const char *url)
 {
-	if (renderer->options.media)
+	if (renderer->options.media &&
+	    (!renderer->options.load_image || is_video_path(url)))
 		return collect_media(renderer,
 			is_video_path(url) ? "video" : "image", url);
-	return renderer_printf(renderer, "[image: %s]", url ? url : "");
+	return renderer_printf(renderer, renderer->options.load_image ?
+		"[image unavailable: %s]" : "[image: %s]", url ? url : "");
 }
 
 static int render_image_node(struct morph_md_kitty *renderer,
@@ -1030,7 +1053,7 @@ static int render_image_node(struct morph_md_kitty *renderer,
 	unsigned int rows;
 	int rc;
 
-	path = local_image_path(url);
+	path = local_image_path(renderer, url);
 	if (!path || read_png_dimensions(path, &pixels) != MD_OK) {
 		free(path);
 		return render_image_fallback(renderer, url);
@@ -1329,12 +1352,15 @@ static int append_table_image_fallback(struct morph_md_kitty *renderer,
 	struct md_buf placeholder;
 	int rc;
 
-	rc = collect_media(renderer,
-			   is_video_path(url) ? "video" : "image", url);
+	rc = MD_OK;
+	if (!renderer->options.load_image || is_video_path(url))
+		rc = collect_media(renderer,
+			is_video_path(url) ? "video" : "image", url);
 	if (rc != MD_OK)
 		return rc;
 	md_buf_init(&placeholder);
-	rc = md_buf_printf(&placeholder, "[image: %s]", url ? url : "");
+	rc = md_buf_printf(&placeholder, renderer->options.load_image ?
+		"[image unavailable: %s]" : "[image: %s]", url ? url : "");
 	if (rc == MD_OK)
 		rc = append_table_text(cell, placeholder.data);
 	md_buf_cleanup(&placeholder);
@@ -1347,7 +1373,7 @@ static int append_table_image(struct morph_md_kitty *renderer,
 	const char *url = cmark_node_get_url(node);
 	struct table_inline_item *item;
 	struct png_dimensions pixels;
-	char *path = local_image_path(url);
+	char *path = local_image_path(renderer, url);
 	unsigned int columns;
 	unsigned int rows;
 
@@ -2659,6 +2685,8 @@ struct morph_md_kitty *morph_md_kitty_create(
 	md_buf_init(&renderer->snapshot_output);
 	md_array_init(&renderer->lists, sizeof(struct list_state));
 	md_array_init(&renderer->media, sizeof(struct media_ref));
+	md_array_init(&renderer->images, sizeof(char *));
+	md_strmap_init(&renderer->image_paths);
 	return renderer;
 }
 
@@ -2870,6 +2898,9 @@ int morph_md_kitty_clear(struct morph_md_kitty *renderer)
 
 void morph_md_kitty_destroy(struct morph_md_kitty *renderer)
 {
+	size_t i;
+	char **image;
+
 	if (!renderer)
 		return;
 	if (renderer->frame_depth > 0) {
@@ -2882,6 +2913,16 @@ void morph_md_kitty_destroy(struct morph_md_kitty *renderer)
 	md_array_cleanup(&renderer->lists);
 	clear_media(renderer);
 	md_array_cleanup(&renderer->media);
+	for (i = 0; i < renderer->images.len; i++) {
+		image = md_array_get(&renderer->images, i);
+		if (*image && renderer->options.release_image)
+			renderer->options.release_image(*image,
+						 renderer->options.image_user_data);
+		else
+			free(*image);
+	}
+	md_array_cleanup(&renderer->images);
+	md_strmap_cleanup(&renderer->image_paths);
 	mjx_free(renderer->math);
 	free(renderer);
 }
