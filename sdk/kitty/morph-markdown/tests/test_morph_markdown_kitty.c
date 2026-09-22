@@ -1,4 +1,5 @@
 #include "morph_markdown_kitty.h"
+#include "base/md_width.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -628,7 +629,7 @@ static void test_heading_underline_excludes_left_padding(void)
 	morph_md_kitty_destroy(renderer);
 }
 
-static void test_media_callback(void)
+static void test_local_png_bypasses_media_callback(void)
 {
 	struct morph_md_kitty_options options;
 	struct morph_md_kitty *renderer;
@@ -653,12 +654,10 @@ static void test_media_callback(void)
 	assert(renderer != NULL);
 	assert(morph_md_kitty_append(renderer, markdown, strlen(markdown), 1) == 0);
 	assert(morph_md_kitty_render(renderer) == 0);
-	assert(media.count == 1);
-	assert(strcmp(media.type, "image") == 0);
-	assert(strcmp(media.path, path) == 0);
+	assert(media.count == 0);
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
-	assert(strstr(output.bytes, "\033_Ga=T,f=100,") == NULL);
+	assert(strstr(output.bytes, "\033_Ga=T,f=100,") != NULL);
 	morph_md_kitty_destroy(renderer);
 	assert(unlink(path) == 0);
 }
@@ -857,6 +856,124 @@ static void test_streaming_image_is_transmitted_once(void)
 	assert(unlink(path) == 0);
 }
 
+/* Follow cursor movement and check every physical table row, including rows
+ * where text or a shorter visual contributes only blank padding. */
+static void assert_table_border_columns(const char *output)
+{
+	const char *cursor = output;
+	const char *end;
+	unsigned int column = 0u;
+	unsigned int expected[3] = {0u};
+	unsigned int border = 0u;
+	unsigned int rows = 0u;
+	unsigned int advance;
+	size_t len;
+
+	while (*cursor) {
+		if (strncmp(cursor, "\0337", 2u) == 0) {
+			end = strstr(cursor + 2u, "\0338");
+			assert(end != NULL);
+			cursor = end + 2u;
+			continue;
+		}
+		if (strncmp(cursor, "\033_G", 3u) == 0) {
+			end = strstr(cursor + 3u, "\033\\");
+			assert(end != NULL);
+			cursor = end + 2u;
+			continue;
+		}
+		if (strncmp(cursor, "\033[", 2u) == 0) {
+			end = cursor + 2u;
+			while (*end && (*end < '@' || *end > '~'))
+				end++;
+			assert(*end);
+			if (*end == 'C') {
+				assert(sscanf(cursor + 2u, "%u", &advance) == 1);
+				column += advance;
+			}
+			cursor = end + 1u;
+			continue;
+		}
+		if (*cursor == '\n') {
+			if (border) {
+				assert(border == 3u);
+				rows++;
+			}
+			border = 0u;
+			column = 0u;
+			cursor++;
+			continue;
+		}
+		if (strncmp(cursor, "│", strlen("│")) == 0) {
+			assert(border < 3u);
+			if (rows == 0u)
+				expected[border] = column;
+			else
+				assert(expected[border] == column);
+			border++;
+		}
+		len = md_utf8_grapheme_len(cursor, strlen(cursor));
+		assert(len > 0u);
+		column += (unsigned int)md_utf8_display_width_n(cursor, len);
+		cursor += len;
+	}
+	assert(rows > 2u);
+}
+
+static void test_table_text_is_centered_beside_tall_formula(void)
+{
+	static const char placeholder[] = "\364\216\273\256";
+	struct morph_md_kitty_options options;
+	struct morph_md_kitty *renderer;
+	struct capture output;
+	char path[128];
+	char markdown[1024];
+	const char *format =
+		"| label | content |\n"
+		"|---|---|\n"
+		"| formula | before $\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}$ after |\n"
+		"| mixed | 中文 `code` $x$ ![small](%s) "
+		"$\\frac{1}{\\frac{1}{x}}$ 后文 |\n";
+	const char *first_placeholder;
+	const char *last_placeholder;
+	const char *before;
+	const char *cursor;
+
+	snprintf(path, sizeof(path), "/tmp/morph-kitty-mixed-%ld.png",
+		 (long)getpid());
+	assert(write_test_png(path) == 0);
+	snprintf(markdown, sizeof(markdown), format, path);
+	memset(&options, 0, sizeof(options));
+	capture_reset(&output);
+	options.features = MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
+	options.font_path = MORPH_TEST_MATH_FONT_PATH;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 100u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(
+		       renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	first_placeholder = strstr(output.bytes, placeholder);
+	assert(first_placeholder != NULL);
+	last_placeholder = first_placeholder;
+	for (cursor = first_placeholder + strlen(placeholder);
+	     (cursor = strstr(cursor, placeholder)) != NULL;
+	     cursor += strlen(placeholder))
+		last_placeholder = cursor;
+	before = strstr(output.bytes, "before");
+	assert(before != NULL);
+	assert(first_placeholder < before);
+	assert(before < last_placeholder);
+	assert_table_border_columns(output.bytes);
+	morph_md_kitty_destroy(renderer);
+	assert(unlink(path) == 0);
+}
+
 static void test_math_uses_native_size_kitty_transfer(void)
 {
 	struct morph_md_kitty_options options;
@@ -1007,11 +1124,12 @@ int main(void)
 	test_initial_cursor_column_preserves_prefix_on_refresh();
 	test_initial_cursor_column_refreshes_later_rows_from_margin();
 	test_heading_underline_excludes_left_padding();
-	test_media_callback();
+	test_local_png_bypasses_media_callback();
 	test_media_callbacks_follow_document_order();
 	test_streaming_media_callbacks_emit_once_in_place();
 	test_local_png_renders_in_blocks_and_tables();
 	test_streaming_image_is_transmitted_once();
+	test_table_text_is_centered_beside_tall_formula();
 	test_math_uses_native_size_kitty_transfer();
 	test_streaming_math_is_append_only();
 	test_fenced_code_uses_syntax_highlighting();

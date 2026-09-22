@@ -1030,8 +1030,6 @@ static int render_image_node(struct morph_md_kitty *renderer,
 	unsigned int rows;
 	int rc;
 
-	if (renderer->options.media)
-		return render_image_fallback(renderer, url);
 	path = local_image_path(url);
 	if (!path || read_png_dimensions(path, &pixels) != MD_OK) {
 		free(path);
@@ -1878,27 +1876,64 @@ static int render_inline_code(struct morph_md_kitty *renderer,
 	return rc == MD_OK ? reset_rc : rc;
 }
 
+static unsigned int table_line_piece_width(
+	const struct table_line_piece *piece)
+{
+	if (piece->kind == TABLE_ITEM_TEXT)
+		return (unsigned int)md_utf8_display_width_n(
+			piece->text.data, piece->text.len);
+	return piece->item ? piece->item->width : 0u;
+}
+
+static int render_table_piece_padding(struct morph_md_kitty *renderer,
+				      const struct table_line_piece *piece)
+{
+	unsigned int width = table_line_piece_width(piece);
+	unsigned int column;
+	int rc = MD_OK;
+
+	for (column = 0u; rc == MD_OK && column < width; column++)
+		rc = renderer_putc(renderer, ' ');
+	return rc;
+}
+
 static int render_table_cell_line(struct morph_md_kitty *renderer,
 				  struct table_cell_line *line,
 				  unsigned int line_row)
 {
 	struct table_line_piece *piece;
+	unsigned int content_row;
+	unsigned int visual_row;
+	unsigned int visual_top;
 	size_t i;
 	int rc = MD_OK;
 
 	if (!line)
 		return MD_OK;
+	content_row = (unsigned int)line->height / 2u;
 	for (i = 0u; rc == MD_OK && i < line->pieces.len; i++) {
 		piece = md_array_get(&line->pieces, i);
 		if (piece->kind == TABLE_ITEM_MATH ||
 		    piece->kind == TABLE_ITEM_IMAGE) {
-			rc = render_table_visual_row(
-				renderer, piece->item, line_row);
-		} else if (piece->kind == TABLE_ITEM_CODE && line_row == 0u) {
+			visual_top = ((unsigned int)line->height -
+				      (unsigned int)piece->item->rows) / 2u;
+			if (line_row >= visual_top &&
+			    line_row < visual_top + (unsigned int)piece->item->rows) {
+				visual_row = line_row - visual_top;
+				rc = render_table_visual_row(
+					renderer, piece->item, visual_row);
+			} else {
+				rc = render_table_piece_padding(renderer, piece);
+			}
+		} else if (piece->kind == TABLE_ITEM_CODE &&
+			   line_row == content_row) {
 			rc = render_inline_code(renderer, piece->item->text);
-		} else if (line_row == 0u) {
+		} else if (piece->kind == TABLE_ITEM_TEXT &&
+			   line_row == content_row) {
 			rc = renderer_visible_write(
 				renderer, piece->text.data, piece->text.len);
+		} else {
+			rc = render_table_piece_padding(renderer, piece);
 		}
 	}
 	return rc;

@@ -64,6 +64,33 @@ Android/iOS SDK demos. Read this file before making changes in a new session.
 - HetiLike Chinese typography is supported in the demo; preserve Chinese fixtures
   when validating text flow, CJK spacing, lists, and tables.
 
+## Kitty Media Ownership
+
+- The Kitty renderer owns terminal cursor position, synchronized-output frames,
+  image placement IDs, and Unicode placeholder rows while rendering Markdown.
+- Render supported local PNG images inside the Kitty renderer even when a media
+  callback is configured. This keeps image placement and following text in the
+  same cursor/layout state.
+- The media callback is a fallback for media the renderer cannot render itself,
+  such as videos, remote images, invalid files, and unsupported image formats.
+  Do not make the presence of a callback override built-in image rendering.
+- A host callback that writes directly to the terminal has its own cursor side
+  effects. Do not invoke it in the middle of renderer-owned image placement or
+  assume the renderer can infer how many rows the callback consumed.
+- In a multi-row table line, vertically center one-row text/code and each visual
+  item within the line height. On physical rows where a piece is not drawn,
+  emit spaces equal to that piece's measured width; otherwise later cells and
+  borders shift left even though the table still accounts for the full width.
+- Tests must cover both paths: supported local PNGs bypass the callback and emit
+  Kitty image commands/placeholders; unsupported media invokes the callback once
+  at its document position.
+- For table regressions, check border columns on every physical row, including
+  mixed text/code and visuals of different heights. Checking only image commands
+  or text order cannot detect missing padding and sliced images.
+- Rebuild the Kitty demo executable before validating its output or running its
+  smoke test. Building only the static library or unit-test target leaves an
+  existing demo executable linked to the old renderer.
+
 ## Important Android Classes
 
 - `MorphMarkdownView`: SDK entry point.

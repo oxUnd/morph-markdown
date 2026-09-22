@@ -53,6 +53,9 @@ if(MORPH_MARKDOWN_BUILD_TESTS)
 	target_link_libraries(test_morph_markdown_kitty PRIVATE
 		morph-markdown-kitty
 	)
+	target_include_directories(test_morph_markdown_kitty PRIVATE
+		${PROJECT_SOURCE_DIR}/src
+	)
 	target_compile_definitions(test_morph_markdown_kitty PRIVATE
 		MORPH_TEST_MATH_FONT_PATH="${MORPH_MATHJAX_DIR}/fonts/STIXTwoMath-Regular.ttf"
 	)
