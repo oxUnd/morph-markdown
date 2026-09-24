@@ -2197,7 +2197,7 @@ static int render_code_rule(struct morph_md_kitty *renderer,
 
 	rc = renderer_control_puts(renderer, "\033[2;38;5;244m");
 	if (rc == MD_OK)
-		rc = renderer_puts(renderer, header ? "╭─" : "╰");
+		rc = renderer_puts(renderer, header ? "──" : "─");
 	if (header && rc == MD_OK)
 		rc = renderer_control_puts(renderer, "\033[1;38;5;75m");
 	if (header && rc == MD_OK)
@@ -2222,15 +2222,7 @@ static int render_code_line(struct morph_md_kitty *renderer,
 {
 	int rc;
 
-	rc = renderer_control_puts(renderer, "\033[2;38;5;244m");
-	if (rc == MD_OK)
-		rc = renderer_puts(renderer, "│");
-	if (rc == MD_OK)
-		rc = renderer_control_puts(renderer, "\033[0m");
-	if (rc == MD_OK)
-		rc = renderer_putc(renderer, ' ');
-	if (rc == MD_OK)
-		rc = renderer_write_ansi(renderer, line, len);
+	rc = renderer_write_ansi(renderer, line, len);
 	if (rc == MD_OK)
 		rc = renderer_control_puts(renderer, "\033[0m");
 	if (rc == MD_OK)

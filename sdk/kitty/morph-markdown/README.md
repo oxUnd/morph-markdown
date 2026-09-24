@@ -38,8 +38,9 @@ By default output goes to `stdout`. Set `options.write` and `options.user_data`
 to route the UTF-8, ANSI and Kitty protocol byte stream elsewhere. The callback
 must return zero on success.
 
-Fenced code blocks render as a terminal-native panel with a colored language
-label, a subtle left rail and ANSI syntax highlighting.
+Fenced code blocks render between two horizontal rules with a colored language
+label and ANSI syntax highlighting. Code lines have no decorative prefix, so
+they can be selected and copied directly.
 Inline code renders without its Markdown delimiters, using padded reverse-video
 terminal styling, and remains an atomic inline item.
 The built-in highlighter recognizes C, C++, Java, Python, Rust, Go,

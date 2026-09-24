@@ -1087,22 +1087,21 @@ static void test_fenced_code_uses_syntax_highlighting(void)
 	output.bytes[output.len] = '\0';
 	assert(strstr(output.bytes,
 		      "quote before code\n\n"
-		      "\033[2;38;5;244m╭─") != NULL);
+		      "\033[2;38;5;244m──") != NULL);
 	assert(strstr(output.bytes, "quote before code\n\n\n") == NULL);
 	assert(strstr(output.bytes,
-		      "\033[2;38;5;244m╭─"
+		      "\033[2;38;5;244m──"
 		      "\033[1;38;5;75m c "
 		      "\033[2;38;5;244m─") != NULL);
 	assert(strstr(output.bytes,
-		      "\033[2;38;5;244m│\033[0m "
-		      "\033[36mint") != NULL);
+		      "\n\033[36mint") != NULL);
 	assert(strstr(output.bytes,
 		      "\033[36mint\033[38;5;250m") != NULL);
 	assert(strstr(output.bytes,
 		      "\033[1;33mreturn\033[38;5;250m") != NULL);
 	assert(strstr(output.bytes, "\033[35m42\033[38;5;250m") != NULL);
 	assert(strstr(output.bytes,
-		      "\033[2;38;5;244m╰") != NULL);
+		      "\033[2;38;5;244m──") != NULL);
 	assert(strstr(output.bytes, "```c") == NULL);
 	morph_md_kitty_destroy(renderer);
 }
