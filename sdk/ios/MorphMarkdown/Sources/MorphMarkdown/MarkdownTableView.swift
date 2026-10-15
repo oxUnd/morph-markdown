@@ -152,15 +152,19 @@ final class MarkdownTableView: UIView {
 			return widths
 		}
 		var balanced = widths
-		let slack = columnSlack(widths: balanced)
+		let slack = columnSlack(widths: balanced, inputs: inputs)
 		let deficits = columnDeficits(widths: balanced, inputs: inputs)
 		transferColumnWidth(widths: &balanced, slack: slack, deficits: deficits)
 		return normalizedWidths(balanced, target: availableWidth)
 	}
 
-	private func columnSlack(widths: [CGFloat]) -> [CGFloat] {
+	private func columnSlack(widths: [CGFloat], inputs: [TableCellWidth]) -> [CGFloat] {
 		let actual = actualColumnWidths(widths: widths)
-		return widths.indices.map { max(0, widths[$0] - actual[$0]) }
+		var minimums = Array(repeating: CGFloat(0), count: widths.count)
+		for input in inputs {
+			minimums[input.column] = max(minimums[input.column], input.minWidth)
+		}
+		return widths.indices.map { max(0, widths[$0] - max(actual[$0], minimums[$0])) }
 	}
 
 	private func actualColumnWidths(widths: [CGFloat]) -> [CGFloat] {
@@ -319,6 +323,9 @@ private extension UIView {
 	}
 
 	func tableMinIntrinsicWidth() -> CGFloat {
+		if let override = self as? TableIntrinsicOverride {
+			return override.tableMinimumWidth
+		}
 		if let code = self as? InlineCodeLabel {
 			return code.tableMinimumWidth
 		}
@@ -329,9 +336,6 @@ private extension UIView {
 		}
 		if let label = self as? UILabel {
 			return label.longestUnbreakableWidth()
-		}
-		if let override = self as? TableIntrinsicOverride {
-			return override.tableMinimumWidth
 		}
 		return tablePreferredIntrinsicWidth()
 	}
