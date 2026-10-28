@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>morph-markdown</title><style>
+.morph-markdown{line-height:1.6;overflow-wrap:break-word}.morph-markdown pre{overflow:auto;padding:1em;background:#f6f8fa}.morph-markdown code{font-family:monospace}.morph-markdown table{border-collapse:collapse;display:block;overflow:auto}.morph-markdown th,.morph-markdown td{border:1px solid #d0d7de;padding:.4em .8em}.morph-markdown blockquote{margin-left:0;padding-left:1em;border-left:3px solid #d0d7de}.morph-markdown .morph-math-inline{vertical-align:middle;white-space:nowrap}.morph-markdown .morph-math-display{text-align:center;margin:1em 0;overflow:auto}.morph-markdown .morph-math{font-size:1em}
+</style></head><body>
+<div class="morph-markdown"><h1>Morph Markdown HTML</h1>
+<p>支持中文排版、<strong>粗体</strong>、<em>斜体</em>、<del>删除线</del>、<code>inline code</code> 和 <a href="https://example.com">链接</a>。</p>
+<p>Inline formula: <math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-inline" display="inline"><semantics><mrow><mi>E</mi><mo>=</mo><msup><mrow><mi>m</mi><mi>c</mi></mrow><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">E=mc^2</annotation></semantics></math>, <math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-inline" display="inline"><semantics><mfrac><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mi>c</mi></mfrac><annotation encoding="application/x-tex">\frac{a+b}{c}</annotation></semantics></math>, and <math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-inline" display="inline"><semantics><mrow><msub><mi>x</mi><mn>1</mn></msub><mo>+</mo><msub><mi>x</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">x_1+x_2</annotation></semantics></math>.</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-display" display="block"><semantics><mrow><msubsup><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></msubsup><mi>i</mi><mo>=</mo><mfrac><mrow><mi>n</mi><mo>(</mo><mi>n</mi><mo>+</mo><mn>1</mn><mo>)</mo></mrow><mn>2</mn></mfrac></mrow><annotation encoding="application/x-tex">\sum_{i=1}^{n}i=\frac{n(n+1)}{2}</annotation></semantics></math></p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-display" display="block"><semantics><mrow><mo fence="true" stretchy="true">(</mo><mtable rowspacing="0.25em" columnspacing="0.7em" columnalign="center"><mtr><mtd><mrow><mi>a</mi></mrow></mtd><mtd><mrow><mi>b</mi></mrow></mtd></mtr><mtr><mtd><mrow><mi>c</mi></mrow></mtd><mtd><mrow><mi>d</mi></mrow></mtd></mtr></mtable><mo fence="true" stretchy="true">)</mo></mrow><annotation encoding="application/x-tex">\begin{pmatrix}a&amp;b\\c&amp;d\end{pmatrix}</annotation></semantics></math></p>
+<blockquote>
+<p>A blockquote containing <math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-inline" display="inline"><semantics><msqrt><mrow><msup><mi>x</mi><mn>2</mn></msup><mo>+</mo><msup><mi>y</mi><mn>2</mn></msup></mrow></msqrt><annotation encoding="application/x-tex">\sqrt{x^2+y^2}</annotation></semantics></math>.</p>
+</blockquote>
+<ul>
+<li>
+<input type="checkbox" checked disabled> Markdown and GFM</li>
+<li>
+<input type="checkbox" checked disabled> Native MathML generated from the MathJax-C AST</li>
+<li>
+<input type="checkbox" disabled> Host syntax coloring</li>
+</ul>
+<ol>
+<li>First item</li>
+<li>Second item</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th align="left">Content</th>
+<th align="center">Formula</th>
+<th align="right">Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left">中文表格</td>
+<td align="center"><math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-inline" display="inline"><semantics><mfrac><mn>1</mn><mn>2</mn></mfrac><annotation encoding="application/x-tex">\frac{1}{2}</annotation></semantics></math></td>
+<td align="right"><code>a &lt; b</code></td>
+</tr>
+<tr>
+<td align="left">Matrix</td>
+<td align="center"><math xmlns="http://www.w3.org/1998/Math/MathML" class="morph-math morph-math-inline" display="inline"><semantics><msubsup><mi>x</mi><mi>i</mi><mn>2</mn></msubsup><annotation encoding="application/x-tex">x_i^2</annotation></semantics></math></td>
+<td align="right"><code>printf("hello")</code></td>
+</tr>
+</tbody>
+</table>
+<pre><code class="morph-language-c">#include &lt;stdio.h&gt;
+int main(void) {
+    puts("&lt;HTML&gt; &amp; Markdown");
+    return 0;
+}
+</code></pre>
+<p>Footnote example<sup class="morph-footnote-ref"><a href="#morph-fn-note" id="morph-fnref-note" data-footnote-ref>1</a></sup>.</p>
+<div id="morph-example" class="morph-custom morph-ready"><a href="#morph-example">Raw HTML anchor</a></div>
+<hr>
+<p><img src="https://example.com/image.png" alt="External image" title="Image title"></p>
+<section class="morph-footnotes" data-footnotes>
+<ol>
+<li id="morph-fn-note">
+<p>Footnotes and backlinks share the morph namespace. <a href="#morph-fnref-note" class="morph-footnote-backref" data-footnote-backref data-footnote-backref-idx="1" aria-label="Back to reference 1">↩</a></p>
+</li>
+</ol>
+</section>
+</div>
+
+</body></html>

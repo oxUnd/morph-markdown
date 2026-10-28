@@ -124,3 +124,52 @@ sdk/android/morph-markdown/scripts/prepare-android-deps.sh
 ```
 
 Both locations are build artifacts and are ignored by git.
+
+## HTML export
+
+Build the `morph-markdown-html` target (enabled by default) after preparing
+MathJax-C. It requires FreeType, HarfBuzz and LibXml2. Disable it with
+`-DMORPH_MARKDOWN_BUILD_HTML=OFF` for a core-only build.
+
+```sh
+./scripts/prepare-third-party.sh
+cmake -S . -B build -DMORPH_MARKDOWN_BUILD_HTML=ON
+cmake --build build
+./build/morph-md-html-demo < article.md > article.html
+```
+
+The demo produces a standalone HTML document with scoped default styles.
+For embedding, include `morph_markdown_html.h` and link `morph-markdown-html`:
+
+```c
+char *html = NULL;
+int rc = morph_md_doc_to_html(doc, NULL, &html);
+if (rc == 0) {
+    /* Embed html; morph_md_html_styles() supplies optional default CSS. */
+    morph_md_free(html);
+}
+```
+
+Export works on intermediate streaming snapshots and finished documents.
+Snapshots retain their source independently of the engine. The fragment has a
+`morph-markdown` wrapper. Standard Markdown, GFM tables/alignment, task lists,
+strikethrough, autolinks, images, links, code blocks/language classes, inline
+code and footnotes use cmark-gfm's HTML renderer. Code is HTML-escaped; syntax
+coloring is left to the host.
+
+MathJax-C parses inline `$...$` and display `$$...$$` TeX into its structured
+MathML AST, which is
+serialized directly into native `<math>` HTML, including attributes, variants,
+fractions, scripts and matrices. Original TeX is preserved in an annotation.
+There is no browser JavaScript dependency or formula bitmap. Presentation uses
+the browser's native MathML support and surrounding font size/color. The pinned
+MathJax-C has no native HTML renderer; this exporter serializes its public AST.
+The default parser font comes from the prepared checkout; set
+`morph_md_html_options.math_font_path` when distributing an executable separately.
+
+Every class/id attribute token receives `morph-` unless already prefixed,
+including raw HTML, language classes, formula attributes and footnote anchors.
+Fragment links, label references, table headers and ARIA ID references are
+updated together. Raw HTML follows the engine's passthrough/strip/text policy;
+passthrough is for trusted content and is not a sanitizer. Embedded CSS and
+JavaScript are not rewritten; author their selectors using prefixed names.

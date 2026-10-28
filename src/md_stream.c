@@ -5,6 +5,7 @@
 #include "base/md_hash.h"
 #include "base/md_utf8.h"
 #include "md_math_ext.h"
+#include "md_doc.h"
 
 #include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
@@ -25,10 +26,6 @@ struct sealed_block {
 struct render_options {
 	int enable_math;
 	enum morph_md_html_policy html_policy;
-};
-
-struct morph_md_doc {
-	char *json;
 };
 
 struct morph_md_engine {
@@ -424,8 +421,8 @@ static void attach_extension(cmark_parser *parser, const char *name)
 		cmark_parser_attach_syntax_extension(parser, extension);
 }
 
-static cmark_node *parse_markdown(const char *md, size_t len,
-				  int enable_gfm, int enable_math)
+cmark_node *morph_md_parse(const char *md, size_t len,
+				  int enable_gfm, int enable_math, int extra_options)
 {
 	cmark_parser *parser;
 	cmark_syntax_extension *math;
@@ -433,7 +430,7 @@ static cmark_node *parse_markdown(const char *md, size_t len,
 	int options;
 
 	options = CMARK_OPT_DEFAULT | CMARK_OPT_UNSAFE;
-	options |= CMARK_OPT_SOURCEPOS;
+	options |= CMARK_OPT_SOURCEPOS | extra_options;
 	cmark_gfm_core_extensions_ensure_registered();
 	parser = cmark_parser_new(options);
 	if (!parser)
@@ -467,7 +464,7 @@ static char *render_ir_json(const char *md, size_t len, int enable_gfm,
 	cmark_node *doc;
 	int rc;
 
-	doc = parse_markdown(md, len, enable_gfm, opts->enable_math);
+	doc = morph_md_parse(md, len, enable_gfm, opts->enable_math, 0);
 	if (!doc)
 		return NULL;
 
@@ -516,10 +513,10 @@ static int emit_top_level_inserts(struct morph_md_engine *stream,
 	char *json;
 
 	stream_render_options(stream, &opts);
-	doc = parse_markdown(
+	doc = morph_md_parse(
 		md, len,
 		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u,
-		opts.enable_math);
+		opts.enable_math, 0);
 	if (!doc)
 		return MD_ERR_PARSE;
 
@@ -894,6 +891,16 @@ int morph_md_engine_snapshot(struct morph_md_engine *stream,
 		goto out;
 	}
 	doc->json = json;
+	doc->markdown_len = all.len;
+	doc->markdown = md_buf_detach(&all);
+	if (!doc->markdown) {
+		free(doc->json);
+		free(doc);
+		rc = MD_ERR_NOMEM;
+		goto out;
+	}
+	doc->features = stream->options.features;
+	doc->html_policy = stream->options.html_policy;
 	*out = doc;
 	rc = MD_OK;
 
@@ -931,11 +938,11 @@ int morph_md_engine_stable_block_count(struct morph_md_engine *stream,
 		return MD_OK;
 
 	stream_render_options(stream, &opts);
-	doc = parse_markdown(
+	doc = morph_md_parse(
 		stream->sealed.data,
 		stream->sealed.len,
 		(stream->options.features & MORPH_MD_FEATURE_GFM) != 0u,
-		opts.enable_math);
+		opts.enable_math, 0);
 	if (!doc)
 		return MD_ERR_NOMEM;
 
@@ -1023,6 +1030,7 @@ void morph_md_doc_release(struct morph_md_doc *doc)
 	if (!doc)
 		return;
 	free(doc->json);
+	free(doc->markdown);
 	free(doc);
 }
 
