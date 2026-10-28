@@ -120,10 +120,80 @@ static void test_streaming_and_math(void)
     morph_md_doc_release(after);
 }
 
+struct resource_state {
+    int calls;
+    int images;
+    int media;
+    int links;
+    int fail;
+};
+
+static int resolve_resource(const struct morph_md_html_resource *resource,
+                            const char **out_url, void *user_data)
+{
+    struct resource_state *state = user_data;
+    ++state->calls;
+    assert(resource->url[0] != '#');
+    assert(*out_url == NULL);
+    if (state->fail) return -42;
+    if (!strcmp(resource->tag, "img")) {
+        ++state->images;
+        assert(!strcmp(resource->attribute, "src"));
+        assert(!strcmp(resource->url, "original.png"));
+        *out_url = "assets/image.png?x=1&label=\"<safe>\"";
+    } else if (!strcmp(resource->tag, "a")) {
+        ++state->links;
+        /* NULL preserves the original URL. */
+    } else {
+        ++state->media;
+        *out_url = "https://cdn.example.com/media";
+    }
+    return 0;
+}
+
+static void test_resources(void)
+{
+    const char *md = "![alt](original.png) [site](https://example.com) [local](#anchor)\n\n"
+        "<video poster=\"poster.png\"><source src=\"movie.mp4\"></video>\n"
+        "<audio src=\"audio.mp3\"></audio><object data=\"file.pdf\"></object>\n"
+        "<img src=\"original.png\">\n";
+    struct morph_md_engine_options engine_options = {0};
+    engine_options.features = MORPH_MD_FEATURE_GFM;
+    struct morph_md_engine *engine = NULL;
+    struct morph_md_doc *doc = NULL;
+    assert(morph_md_engine_create(&engine_options, &engine) == 0);
+    assert(morph_md_engine_append(engine, md, strlen(md), 1) == 0);
+    assert(morph_md_engine_snapshot(engine, &doc) == 0);
+    morph_md_engine_destroy(engine);
+    struct resource_state state = {0};
+    struct morph_md_html_options options = {0};
+    options.resolve_resource = resolve_resource;
+    options.user_data = &state;
+    char *html = NULL;
+    assert(morph_md_doc_to_html(doc, &options, &html) == 0);
+    assert(state.calls == 7 && state.images == 2 && state.media == 4 && state.links == 1);
+    assert(strstr(html, "assets/image.png?x=1&amp;label=%22&lt;safe&gt;%22"));
+    assert(strstr(html, "https://cdn.example.com/media"));
+    assert(strstr(html, "href=\"https://example.com\""));
+    assert(strstr(html, "href=\"#morph-anchor\""));
+    morph_md_free(html);
+    state.fail = 1;
+    html = (char *)&state;
+    assert(morph_md_doc_to_html(doc, &options, &html) == -42);
+    assert(html == NULL);
+    assert(state.calls == 8);
+    assert(morph_md_doc_to_html(doc, NULL, &html) == 0);
+    assert(strstr(html, "src=\"original.png\""));
+    assert(!strstr(html, "cdn.example.com"));
+    morph_md_free(html);
+    morph_md_doc_release(doc);
+}
+
 int main(void)
 {
     test_complete();
     test_policy();
+    test_resources();
     test_streaming_and_math();
     puts("HTML tests passed");
     return 0;

@@ -194,7 +194,42 @@ static int namespace_tree(xmlNode *node)
     return 0;
 }
 
-static int namespace_html(const char *html, char **result)
+static int resolve_attribute(xmlNode *node, const char *attribute,
+                             const struct morph_md_html_options *options)
+{
+    xmlChar *url = xmlGetProp(node, BAD_CAST attribute);
+    if (!url) return 0;
+    if (!url[0] || url[0] == '#') { xmlFree(url); return 0; }
+    struct morph_md_html_resource resource = {
+        (const char *)node->name, attribute, (const char *)url
+    };
+    const char *resolved = NULL;
+    int rc = options->resolve_resource(&resource, &resolved, options->user_data);
+    if (!rc && resolved && !xmlSetProp(node, BAD_CAST attribute, BAD_CAST resolved))
+        rc = MD_ERR_NOMEM;
+    xmlFree(url);
+    return rc;
+}
+
+static int resolve_resources(xmlNode *node, const struct morph_md_html_options *options)
+{
+    if (!options || !options->resolve_resource) return 0;
+    static const char *attributes[] = {"src", "poster", "href", "xlink:href"};
+    for (; node; node = node->next) {
+        if (node->type != XML_ELEMENT_NODE) continue;
+        int rc = 0;
+        for (size_t i = 0; !rc && i < sizeof(attributes) / sizeof(attributes[0]); ++i)
+            rc = resolve_attribute(node, attributes[i], options);
+        if (!rc && xmlStrEqual(node->name, BAD_CAST "object"))
+            rc = resolve_attribute(node, "data", options);
+        if (!rc) rc = resolve_resources(node->children, options);
+        if (rc) return rc;
+    }
+    return 0;
+}
+
+static int namespace_html(const char *html,
+                          const struct morph_md_html_options *options, char **result)
 {
     size_t len = strlen(html);
     if (len > INT_MAX) return MD_ERR_INVALID;
@@ -211,7 +246,8 @@ static int namespace_html(const char *html, char **result)
     if (!tree) return MD_ERR_PARSE;
     xmlNode *root = xmlDocGetRootElement(tree), *body = root ? root->children : NULL;
     while (body && !xmlStrEqual(body->name, BAD_CAST "body")) body = body->next;
-    int rc = namespace_tree(root);
+    int rc = body ? resolve_resources(body->children, options) : 0;
+    if (!rc) rc = namespace_tree(root);
     xmlBufferPtr buffer = xmlBufferCreate();
     if (!buffer) rc = MD_ERR_NOMEM;
     if (!rc && body) {
@@ -254,7 +290,7 @@ int morph_md_doc_to_html(const struct morph_md_doc *doc,
     }
     char *html = rc ? NULL : cmark_render_html(tree, CMARK_OPT_UNSAFE, extensions);
     cmark_llist_free(mem, extensions);
-    if (!rc) rc = html ? namespace_html(html, out_html) : MD_ERR_NOMEM;
+    if (!rc) rc = html ? namespace_html(html, options, out_html) : MD_ERR_NOMEM;
     free(html);
     if (ctx) mjx_free(ctx);
     cmark_node_free(tree);

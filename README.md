@@ -173,3 +173,47 @@ Fragment links, label references, table headers and ARIA ID references are
 updated together. Raw HTML follows the engine's passthrough/strip/text policy;
 passthrough is for trusted content and is not a sanitizer. Embedded CSS and
 JavaScript are not rewritten; author their selectors using prefixed names.
+
+### Resource URL callback
+
+Configure `resolve_resource` and `user_data` in `morph_md_html_options` to map
+images and other resource URLs to a CDN, local assets, signed URLs or data URIs:
+
+```c
+#include <string.h>
+
+static int resolve_resource(const struct morph_md_html_resource *resource,
+                            const char **out_url, void *user_data)
+{
+    (void)user_data;
+    if (strcmp(resource->tag, "img") == 0 &&
+        strcmp(resource->attribute, "src") == 0 &&
+        strcmp(resource->url, "images/logo.png") == 0)
+        *out_url = "https://cdn.example.com/logo.png";
+    return 0;
+}
+
+struct morph_md_html_options options = {0};
+options.resolve_resource = resolve_resource;
+options.user_data = NULL;
+char *html = NULL;
+int rc = morph_md_doc_to_html(doc, &options, &html);
+/* Use html on success, then morph_md_free(html). */
+```
+
+The callback runs synchronously for each single-URL attribute in emitted
+Markdown/passthrough HTML: `src`, `poster`, `object[data]`, `href` and
+`xlink:href`. Inspect the tag and attribute to distinguish images, video/audio,
+links and other resources. Empty URLs and fragment-only anchors are skipped;
+rewritten fragment references still receive the `morph-` namespace.
+
+`*out_url` starts as NULL: leave it NULL to preserve the original URL, or return
+a borrowed replacement string. The exporter copies it immediately, escapes it
+for HTML and does not free it. A scratch buffer in `user_data` can be reused at
+the next invocation. Return a nonzero error code to abort export; `*out_html`
+remains NULL. Each snapshot export invokes callbacks again; callers can cache
+resource mappings in `user_data`. No callback means existing URLs are preserved.
+
+The exporter does not download resources; fetching, caching and embedding data
+URIs belong to the caller. CSS `url(...)` and `srcset` lists are not single-URL
+attributes and are not passed to this callback.
