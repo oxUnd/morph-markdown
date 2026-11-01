@@ -55,6 +55,14 @@ table images keep their intrinsic cell size and participate in column and row
 measurement. Invalid files, non-PNG formats, remote URLs and videos render a
 text placeholder when no media callback is configured.
 
+Set `image_max_width_columns` and `image_max_height_rows` to limit block image
+previews further while preserving aspect ratio and avoiding enlargement. Zero
+adds no extra limit. Enable `image_caption` to show `(original path or URL · alt)`
+below block images. Captions use the Markdown source URL rather than a loader's
+temporary file, and flatten alt formatting to plain text. The path or URL uses
+an OSC 8 hyperlink; local paths link to absolute `file://` URLs with path bytes
+percent-encoded. Table images retain their existing layout and do not gain captions.
+
 Set `options.media` and `options.media_user_data` to receive media references
 the SDK could not render directly. The SDK removes a leading `file://` prefix
 before invoking the callback. Media callbacks replace the placeholder and run

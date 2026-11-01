@@ -62,6 +62,16 @@ struct morph_md_kitty_options {
 	int (*load_image)(const char *url, char **path, void *user_data);
 	void (*release_image)(char *path, void *user_data);
 	void *image_user_data;
+	/* Extra limits for block image previews; zero keeps viewport sizing.
+	 * Images retain their aspect ratio and are never enlarged. Table images
+	 * retain intrinsic sizing for table layout.
+	 */
+	unsigned int image_max_width_columns;
+	unsigned int image_max_height_rows;
+	/* Show (original path or URL · plain alt text) below block images.
+	 * The path or URL is an OSC 8 hyperlink; local paths use file:// targets.
+	 */
+	int image_caption;
 };
 
 struct morph_md_kitty;

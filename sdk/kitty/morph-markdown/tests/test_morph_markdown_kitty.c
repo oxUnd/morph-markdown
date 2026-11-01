@@ -2,6 +2,7 @@
 #include "base/md_width.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1159,6 +1160,9 @@ static void test_loaded_images_keep_table_layout_and_stream_cache(void)
 	options.load_image = load_test_image;
 	options.release_image = release_test_image;
 	options.image_user_data = &loader;
+	options.image_max_width_columns = 48u;
+	options.image_max_height_rows = 12u;
+	options.image_caption = 1;
 	renderer = morph_md_kitty_create(&options);
 	assert(renderer != NULL);
 	assert(morph_md_kitty_append(renderer, markdown, strlen(markdown), 0) == 0);
@@ -1170,9 +1174,67 @@ static void test_loaded_images_keep_table_layout_and_stream_cache(void)
 	assert(media.count == 0);
 	assert(substring_count(output.bytes, "\033_Ga=T,f=100,") == 3);
 	assert(strstr(output.bytes, "[image unavailable: missing.webp]") != NULL);
+	assert(substring_count(output.bytes,
+		"(\033]8;;https://example.test/a.jpg\033\\"
+		"https://example.test/a.jpg\033]8;;\033\\)") == 1);
+	assert(strstr(output.bytes, path) == NULL);
 	assert_table_border_columns(output.bytes);
 	morph_md_kitty_destroy(renderer);
 	assert(loader.releases == 1);
+	assert(unlink(path) == 0);
+}
+
+static void test_image_caption_links_encode_paths_and_preserve_urls(void)
+{
+	struct morph_md_kitty_options options = {0};
+	struct capture output;
+	char path[] = "/tmp/morph-kitty-caption-XXXXXX";
+	char directory[PATH_MAX];
+	char relative_target[PATH_MAX + 80];
+	struct loader_capture loader = {path, 0, 0};
+	int fd = mkstemp(path);
+	const char *markdown[] = {
+		"![photo](</tmp/photo #100%.png>)\n\n",
+		"![photo](<photo #100%.png>)\n\n",
+		"![photo](https://example.test/a%20b.png?size=2&v=3#preview)\n\n"
+	};
+	const char *targets[] = {
+		"\033]8;;file:///tmp/photo%20%23100%25.png\033\\",
+		relative_target,
+		"\033]8;;https://example.test/a%20b.png?size=2&v=3#preview\033\\"
+	};
+	size_t i;
+
+	assert(fd >= 0);
+	close(fd);
+	assert(write_test_png(path) == 0);
+	assert(getcwd(directory, sizeof(directory)) != NULL);
+	snprintf(relative_target, sizeof(relative_target),
+		 "\033]8;;file://%s/photo%%20%%23100%%25.png\033\\", directory);
+	options.write = capture_write;
+	options.user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 120u;
+	options.load_image = load_test_image;
+	options.release_image = release_test_image;
+	options.image_user_data = &loader;
+	options.image_caption = 1;
+	for (i = 0u; i < sizeof(markdown) / sizeof(markdown[0]); i++) {
+		struct morph_md_kitty *renderer = morph_md_kitty_create(&options);
+
+		assert(renderer != NULL);
+		capture_reset(&output);
+		assert(morph_md_kitty_append(renderer, markdown[i],
+					   strlen(markdown[i]), 1) == 0);
+		assert(morph_md_kitty_render(renderer) == 0);
+		assert(output.len < sizeof(output.bytes));
+		output.bytes[output.len] = '\0';
+		assert(strstr(output.bytes, targets[i]) != NULL);
+		assert(substring_count(output.bytes, "\033]8;;\033\\ · photo)") == 1);
+		assert(strstr(output.bytes, path) == NULL);
+		morph_md_kitty_destroy(renderer);
+	}
+	assert(loader.releases == 3);
 	assert(unlink(path) == 0);
 }
 
@@ -1180,6 +1242,7 @@ int main(void)
 {
 	test_stream_render_and_final();
 	test_loaded_images_keep_table_layout_and_stream_cache();
+	test_image_caption_links_encode_paths_and_preserve_urls();
 	test_clear_sequence();
 	test_incremental_render_preserves_scrollback();
 	test_streaming_table_stays_in_live_tail();

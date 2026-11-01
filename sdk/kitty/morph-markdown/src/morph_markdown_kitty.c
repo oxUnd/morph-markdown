@@ -13,6 +13,7 @@
 #include <cmark-gfm-core-extensions.h>
 #include <mathjax.h>
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -1043,6 +1044,119 @@ static int render_image_fallback(struct morph_md_kitty *renderer,
 		"[image unavailable: %s]" : "[image: %s]", url ? url : "");
 }
 
+static void fit_block_image_dimensions(struct morph_md_kitty *renderer,
+				      unsigned int *columns,
+				      unsigned int *rows)
+{
+	unsigned int max_columns = renderer->options.image_max_width_columns;
+	unsigned int max_rows = renderer->options.image_max_height_rows;
+	double scale = 1.0;
+
+	if (max_columns > 0u && *columns > max_columns)
+		scale = (double)max_columns / *columns;
+	if (max_rows > 0u && *rows > max_rows &&
+	    (double)max_rows / *rows < scale)
+		scale = (double)max_rows / *rows;
+	*columns = (unsigned int)((double)*columns * scale + 0.999999);
+	*rows = (unsigned int)((double)*rows * scale + 0.999999);
+}
+
+static int append_image_alt(struct md_buf *alt, cmark_node *node)
+{
+	cmark_node *child;
+	cmark_node_type type = cmark_node_get_type(node);
+	const char *literal = cmark_node_get_literal(node);
+	int rc;
+
+	if ((type == CMARK_NODE_TEXT || type == CMARK_NODE_CODE) && literal)
+		return md_buf_puts(alt, literal);
+	if (type == CMARK_NODE_SOFTBREAK || type == CMARK_NODE_LINEBREAK)
+		return md_buf_puts(alt, " ");
+	for (child = cmark_node_first_child(node); child;
+	     child = cmark_node_next(child)) {
+		rc = append_image_alt(alt, child);
+		if (rc != MD_OK)
+			return rc;
+	}
+	return MD_OK;
+}
+
+static int append_image_link_target(struct md_buf *target, const char *text,
+				    int is_url)
+{
+	const unsigned char *cursor = (const unsigned char *)text;
+	int rc = MD_OK;
+
+	for (; *cursor && rc == MD_OK; cursor++) {
+		unsigned char byte = *cursor;
+		int unreserved = (byte >= 'a' && byte <= 'z') ||
+			(byte >= 'A' && byte <= 'Z') ||
+			(byte >= '0' && byte <= '9') ||
+			strchr("-._~/", byte) != NULL;
+
+		if (unreserved || (is_url && strchr(":?#[]@!$&'()*+,;=%", byte)))
+			rc = md_buf_append(target, (const char *)cursor, 1u);
+		else
+			rc = md_buf_printf(target, "%%%02X", (unsigned int)byte);
+	}
+	return rc;
+}
+
+static int image_link_target(struct md_buf *target, const char *url)
+{
+	char directory[PATH_MAX];
+	int rc;
+
+	if (strstr(url, "://"))
+		return append_image_link_target(target, url, 1);
+	rc = md_buf_puts(target, "file://");
+	if (rc == MD_OK && url[0] != '/') {
+		if (!getcwd(directory, sizeof(directory)))
+			return -errno;
+		rc = append_image_link_target(target, directory, 0);
+		if (rc == MD_OK)
+			rc = md_buf_puts(target, "/");
+	}
+	return rc == MD_OK ? append_image_link_target(target, url, 0) : rc;
+}
+
+static int render_image_caption(struct morph_md_kitty *renderer,
+				cmark_node *node)
+{
+	const char *url = cmark_node_get_url(node);
+	struct md_buf alt;
+	struct md_buf target;
+	int rc;
+	int close_rc;
+
+	if (!renderer->options.image_caption)
+		return MD_OK;
+	md_buf_init(&alt);
+	md_buf_init(&target);
+	rc = image_link_target(&target, url ? url : "");
+	if (url && strncmp(url, "file://", 7u) == 0)
+		url += 7u;
+	if (rc == MD_OK)
+		rc = append_image_alt(&alt, node);
+	if (rc == MD_OK)
+		rc = renderer_putc(renderer, '(');
+	if (rc == MD_OK)
+		rc = renderer_control_printf(renderer, "\033]8;;%s\033\\", target.data);
+	if (rc == MD_OK) {
+		rc = renderer_puts(renderer, url ? url : "");
+		close_rc = renderer_control_puts(renderer, "\033]8;;\033\\");
+		if (rc == MD_OK)
+			rc = close_rc;
+	}
+	if (rc == MD_OK && alt.len > 0u)
+		rc = renderer_printf(renderer, " · %s", alt.data);
+	if (rc == MD_OK)
+		rc = renderer_puts(renderer, ")\n");
+	md_buf_cleanup(&target);
+	md_buf_cleanup(&alt);
+	return rc;
+}
+
 static int render_image_node(struct morph_md_kitty *renderer,
 			     cmark_node *node)
 {
@@ -1060,6 +1174,7 @@ static int render_image_node(struct morph_md_kitty *renderer,
 	}
 	png_cell_dimensions(renderer, &pixels,
 			    image_available_columns(renderer), &columns, &rows);
+	fit_block_image_dimensions(renderer, &columns, &rows);
 	if (renderer->line_started &&
 	    renderer->content_column >
 		    renderer->options.content_padding_left_columns) {
@@ -1071,6 +1186,8 @@ static int render_image_node(struct morph_md_kitty *renderer,
 		rc = render_png_placement(renderer, path, columns, rows);
 	if (rc == MD_OK)
 		rc = renderer_newline(renderer);
+	if (rc == MD_OK)
+		rc = render_image_caption(renderer, node);
 	free(path);
 	return rc;
 }
