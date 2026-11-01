@@ -83,6 +83,7 @@ struct morph_md_kitty {
 	struct md_buf markdown;
 	struct md_buf frame_output;
 	struct md_buf snapshot_output;
+	struct md_buf preview_output;
 	struct md_array lists;
 	struct md_array media;
 	struct md_array images;
@@ -93,12 +94,17 @@ struct morph_md_kitty {
 	unsigned int content_column;
 	size_t committed_source_len;
 	size_t emitted_rows;
+	size_t stable_source_len;
+	size_t preview_source_len;
+	unsigned int stable_columns;
+	unsigned int preview_columns;
 	int line_started;
 	int wrap_suppression;
 	int item_depth;
 	int frame_depth;
 	int finalized;
 	int capturing_snapshot;
+	int previewing;
 };
 
 struct terminal_cell_size {
@@ -192,7 +198,7 @@ static int collect_media(struct morph_md_kitty *renderer,
 	const char *path;
 	static const char marker[MEDIA_MARKER_SIZE] = {'\0'};
 
-	if (!renderer->options.media || !url || !url[0])
+	if (renderer->previewing || !renderer->options.media || !url || !url[0])
 		return MD_OK;
 	path = strncmp(url, "file://", 7u) == 0 ? url + 7 : url;
 	media = md_array_push(&renderer->media);
@@ -741,7 +747,7 @@ static char *local_image_path(struct morph_md_kitty *renderer, const char *url)
 	size_t len;
 	char *copy;
 
-	if (!url || !url[0])
+	if (renderer->previewing || !url || !url[0])
 		return NULL;
 	if (renderer->options.load_image) {
 		char **image;
@@ -939,6 +945,8 @@ static int render_formula(struct morph_md_kitty *renderer,
 	unsigned int row;
 	int rc;
 
+	if (renderer->previewing)
+		return renderer_visible_write(renderer, latex, len);
 	buf = render_formula_buffer(renderer, latex, len, style);
 	if (!buf)
 		return MD_ERR_PARSE;
@@ -1036,6 +1044,8 @@ static unsigned int image_available_columns(
 static int render_image_fallback(struct morph_md_kitty *renderer,
 				 const char *url)
 {
+	if (renderer->previewing)
+		return renderer_printf(renderer, "[image: %s]", url ? url : "");
 	if (renderer->options.media &&
 	    (!renderer->options.load_image || is_video_path(url)))
 		return collect_media(renderer,
@@ -1436,6 +1446,8 @@ static int append_table_math(struct morph_md_kitty *renderer,
 	const char *literal = morph_md_math_literal(node);
 	mjx_buf *buffer;
 
+	if (renderer->previewing)
+		return append_table_text(cell, literal ? literal : "");
 	item = md_array_push(&cell->items);
 	if (!item)
 		return MD_ERR_NOMEM;
@@ -1476,7 +1488,7 @@ static int append_table_image_fallback(struct morph_md_kitty *renderer,
 	if (rc != MD_OK)
 		return rc;
 	md_buf_init(&placeholder);
-	rc = md_buf_printf(&placeholder, renderer->options.load_image ?
+	rc = md_buf_printf(&placeholder, renderer->options.load_image && !renderer->previewing ?
 		"[image unavailable: %s]" : "[image: %s]", url ? url : "");
 	if (rc == MD_OK)
 		rc = append_table_text(cell, placeholder.data);
@@ -2439,7 +2451,7 @@ static int render_node(struct morph_md_kitty *renderer, cmark_node *node)
 		return rc;
 	}
 	if (type == CMARK_NODE_LINK) {
-		if (is_video_path(cmark_node_get_url(node)) &&
+		if (!renderer->previewing && is_video_path(cmark_node_get_url(node)) &&
 		    renderer->options.media)
 			return collect_media(renderer, "video",
 					     cmark_node_get_url(node));
@@ -2792,6 +2804,7 @@ struct morph_md_kitty *morph_md_kitty_create(
 	md_buf_init(&renderer->markdown);
 	md_buf_init(&renderer->frame_output);
 	md_buf_init(&renderer->snapshot_output);
+	md_buf_init(&renderer->preview_output);
 	md_array_init(&renderer->lists, sizeof(struct list_state));
 	md_array_init(&renderer->media, sizeof(struct media_ref));
 	md_array_init(&renderer->images, sizeof(char *));
@@ -2863,15 +2876,105 @@ static int emit_snapshot_range(struct morph_md_kitty *renderer,
 	return rc;
 }
 
+static int replace_preview(struct morph_md_kitty *renderer,
+			   const char *bytes, size_t len)
+{
+	int rc;
+
+	if (!renderer->options.preview)
+		return MD_OK;
+	if (len == renderer->preview_output.len &&
+	    (len == 0u || memcmp(bytes, renderer->preview_output.data, len) == 0))
+		return MD_OK;
+	rc = renderer->options.preview(bytes, len, renderer->options.user_data);
+	if (rc != MD_OK)
+		return rc;
+	renderer->preview_output.len = 0u;
+	if (renderer->preview_output.data)
+		renderer->preview_output.data[0] = '\0';
+	return md_buf_append(&renderer->preview_output, bytes, len);
+}
+
+static int render_stable_prefix(struct morph_md_kitty *renderer, size_t stable_len)
+{
+	size_t offset;
+	size_t rows;
+	int rc;
+
+	if (!renderer->finalized && stable_len == renderer->stable_source_len)
+		return MD_OK;
+	rc = replace_preview(renderer, NULL, 0u);
+	if (rc != MD_OK)
+		return rc;
+	/* Resize only changes the offset into a new snapshot. Already committed
+	 * rows stay in scrollback; they are never repainted at the new width. */
+	if (renderer->stable_source_len > 0u &&
+	    renderer->stable_columns != renderer->viewport_columns) {
+		rc = capture_snapshot(renderer, renderer->markdown.data,
+				      renderer->stable_source_len, 0);
+		if (rc != MD_OK)
+			return rc;
+		renderer->emitted_rows = output_row_count(&renderer->snapshot_output);
+	}
+	rc = capture_snapshot(renderer, renderer->markdown.data, stable_len,
+			      renderer->finalized);
+	if (rc != MD_OK)
+		return rc;
+	rows = output_row_count(&renderer->snapshot_output);
+	offset = output_row_offset(&renderer->snapshot_output, renderer->emitted_rows);
+	rc = emit_snapshot_range(renderer, offset, renderer->snapshot_output.len);
+	if (rc == MD_OK) {
+		renderer->stable_source_len = stable_len;
+		renderer->emitted_rows = rows;
+		renderer->stable_columns = renderer->viewport_columns;
+	}
+	clear_media(renderer);
+	return rc;
+}
+
+static int render_mutable_preview(struct morph_md_kitty *renderer)
+{
+	unsigned int initial_column = renderer->options.initial_cursor_column;
+	unsigned int top_rows = renderer->options.content_padding_top_rows;
+	size_t start = renderer->stable_source_len;
+	size_t len = renderer->markdown.len - start;
+	int rc;
+
+	if (!renderer->options.preview)
+		return MD_OK;
+	if (len == 0u)
+		return replace_preview(renderer, NULL, 0u);
+	if (renderer->preview_source_len == renderer->markdown.len &&
+	    renderer->preview_columns == renderer->viewport_columns)
+		return MD_OK;
+	if (start > 0u) {
+		renderer->options.initial_cursor_column = 0u;
+		renderer->options.content_padding_top_rows = 0u;
+	}
+	renderer->previewing = 1;
+	rc = capture_snapshot(renderer, renderer->markdown.data + start, len, 0);
+	renderer->previewing = 0;
+	renderer->options.initial_cursor_column = initial_column;
+	renderer->options.content_padding_top_rows = top_rows;
+	if (rc != MD_OK)
+		return rc;
+	len = renderer->snapshot_output.len;
+	while (len > 0u && renderer->snapshot_output.data[len - 1u] == '\n')
+		len--;
+	rc = replace_preview(renderer, renderer->snapshot_output.data, len);
+	if (rc == MD_OK) {
+		renderer->preview_source_len = renderer->markdown.len;
+		renderer->preview_columns = renderer->viewport_columns;
+	}
+	clear_media(renderer);
+	return rc;
+}
+
 int morph_md_kitty_render(struct morph_md_kitty *renderer)
 {
 	size_t source_len;
-	size_t stable_source_len;
+	size_t stable_len;
 	size_t active_start;
-	size_t total_rows;
-	size_t stable_rows;
-	size_t emit_offset;
-	size_t emit_end;
 	int rc;
 
 	if (!renderer)
@@ -2883,53 +2986,23 @@ int morph_md_kitty_render(struct morph_md_kitty *renderer)
 		renderer->options.terminal_rows :
 		terminal_row_count(renderer->options.terminal_fd);
 	source_len = completed_source_len(renderer);
-	if (source_len == 0u && !renderer->finalized)
-		return MD_OK;
-	if (!renderer->finalized &&
-	    source_len == renderer->committed_source_len)
-		return MD_OK;
-	stable_source_len = renderer->finalized ? source_len :
-		completed_block_source_len(renderer->markdown.data, source_len);
-	active_start = renderer->finalized ? source_len :
-		active_source_start(renderer, renderer->markdown.data, source_len);
-	if (active_start < stable_source_len)
-		stable_source_len = active_start;
-	stable_rows = 0u;
-	if (stable_source_len > 0u) {
-		rc = capture_snapshot(renderer, renderer->markdown.data,
-				      stable_source_len, 0);
-		if (rc != MD_OK)
-			return rc;
-		stable_rows = output_row_count(&renderer->snapshot_output);
+	stable_len = renderer->stable_source_len;
+	if (renderer->finalized)
+		stable_len = source_len;
+	else if (source_len != renderer->committed_source_len) {
+		stable_len = completed_block_source_len(renderer->markdown.data, source_len);
+		if (stable_len > renderer->stable_source_len) {
+			active_start = active_source_start(renderer, renderer->markdown.data,
+						   source_len);
+			if (active_start < stable_len)
+				stable_len = active_start;
+		}
 	}
-	rc = capture_snapshot(renderer, renderer->markdown.data, source_len,
-			      renderer->finalized);
+	rc = render_stable_prefix(renderer, stable_len);
 	if (rc != MD_OK)
 		return rc;
-	total_rows = output_row_count(&renderer->snapshot_output);
-	if (renderer->finalized)
-		stable_rows = total_rows;
-	if (stable_rows < renderer->emitted_rows)
-		stable_rows = renderer->emitted_rows;
-	if (stable_rows > total_rows)
-		stable_rows = total_rows;
-	emit_offset = output_row_offset(&renderer->snapshot_output,
-					renderer->emitted_rows);
-	emit_end = output_row_offset(
-		&renderer->snapshot_output, stable_rows);
-	if (emit_end <= emit_offset) {
-		renderer->committed_source_len = source_len;
-		renderer->emitted_rows = stable_rows;
-		clear_media(renderer);
-		return MD_OK;
-	}
-	rc = emit_snapshot_range(renderer, emit_offset, emit_end);
-	if (rc == MD_OK) {
-		renderer->committed_source_len = source_len;
-		renderer->emitted_rows = stable_rows;
-	}
-	clear_media(renderer);
-	return rc;
+	renderer->committed_source_len = source_len;
+	return render_mutable_preview(renderer);
 }
 
 int morph_md_kitty_write_text(struct morph_md_kitty *renderer,
@@ -3001,6 +3074,11 @@ int morph_md_kitty_clear(struct morph_md_kitty *renderer)
 		renderer->line_started = 0;
 		renderer->committed_source_len = 0u;
 		renderer->emitted_rows = 0u;
+		renderer->stable_source_len = 0u;
+		renderer->preview_source_len = 0u;
+		renderer->stable_columns = 0u;
+		renderer->preview_columns = 0u;
+		rc = replace_preview(renderer, NULL, 0u);
 	}
 	return rc;
 }
@@ -3019,6 +3097,7 @@ void morph_md_kitty_destroy(struct morph_md_kitty *renderer)
 	md_buf_cleanup(&renderer->markdown);
 	md_buf_cleanup(&renderer->frame_output);
 	md_buf_cleanup(&renderer->snapshot_output);
+	md_buf_cleanup(&renderer->preview_output);
 	md_array_cleanup(&renderer->lists);
 	clear_media(renderer);
 	md_array_cleanup(&renderer->media);

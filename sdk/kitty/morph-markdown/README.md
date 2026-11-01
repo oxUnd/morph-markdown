@@ -93,11 +93,21 @@ When the caller writes a visible prefix before rendering, set
 rendered row continues from that column without adding left padding again;
 subsequent rows use `content_padding_left_columns`.
 
-Call `morph_md_kitty_render` after each append. Complete rendered rows are
-appended at the current cursor position while only the structurally mutable
-tail is refreshed. Normal streaming does not clear the viewport or discard
-terminal scrollback. `morph_md_kitty_clear` remains available for an explicit
-destructive reset; the next render paints the accumulated snapshot again.
+Call `morph_md_kitty_render` after each append. Stable blocks append at the current
+cursor position. Set `options.preview` to receive a replacement ANSI rendering
+of the mutable tail after every append, including words without a newline and
+open code blocks or tables. The callback uses `options.user_data`. Empty text
+clears the preview before stable bytes go to `options.write`; the host owns a
+bounded, redrawable region and must keep it outside committed scrollback.
+Without a preview callback, mutable input remains buffered until stable.
+
+Previews contain no image transfers, cursor movement or media callbacks. Images
+use text placeholders and formulas use text until their blocks become stable,
+so preview updates never invoke an image loader or produce math bitmaps. Stable
+snapshots are rebuilt only when a block commits; other updates render the tail
+alone. Resizing refreshes the preview without rewriting committed rows.
+`morph_md_kitty_clear` remains available for an explicit destructive reset; the
+next render paints the accumulated snapshot again.
 
 Incremental renders use synchronized output internally. Explicit
 `morph_md_kitty_begin_frame` and `morph_md_kitty_end_frame` calls may still wrap

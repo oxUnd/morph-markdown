@@ -72,6 +72,13 @@ struct morph_md_kitty_options {
 	 * The path or URL is an OSC 8 hyperlink; local paths use file:// targets.
 	 */
 	int image_caption;
+	/* Optional replacement for the mutable Markdown tail. Receives rendered
+	 * ANSI text without cursor movement, image transfers or media callbacks.
+	 * Empty text clears the preview before stable output is appended. The host
+	 * owns a bounded, redrawable region outside committed scrollback.
+	 * Uses user_data and returns zero on success.
+	 */
+	int (*preview)(const char *bytes, size_t len, void *user_data);
 };
 
 struct morph_md_kitty;
@@ -86,8 +93,8 @@ int morph_md_kitty_append(struct morph_md_kitty *renderer,
 
 /*
  * Appends only newly stable rendered rows at the current terminal position.
- * Mutable input remains buffered until it is stable, so normal-screen output
- * never rewinds or mutates scrollback.
+ * Mutable input is sent to options.preview when configured, otherwise buffered.
+ * Stable output never rewinds or mutates scrollback.
  */
 int morph_md_kitty_render(struct morph_md_kitty *renderer);
 

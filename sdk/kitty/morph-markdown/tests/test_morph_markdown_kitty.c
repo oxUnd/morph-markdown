@@ -1130,6 +1130,112 @@ static void release_test_image(char *path, void *user)
 	free(path);
 }
 
+struct preview_capture {
+	struct capture stable;
+	struct capture preview;
+	int updates;
+};
+
+static int capture_stable_with_preview(const char *bytes, size_t len, void *user)
+{
+	struct preview_capture *capture = user;
+
+	assert(capture->preview.len == 0u);
+	return capture_write(bytes, len, &capture->stable);
+}
+
+static int capture_preview(const char *bytes, size_t len, void *user)
+{
+	struct preview_capture *capture = user;
+
+	capture_reset(&capture->preview);
+	capture->updates++;
+	return len > 0u ? capture_write(bytes, len, &capture->preview) : 0;
+}
+
+static void test_mutable_preview_updates_and_commits_once(void)
+{
+	struct morph_md_kitty_options options = {0};
+	struct preview_capture capture = {0};
+	struct morph_md_kitty *renderer;
+	int updates;
+
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_stable_with_preview;
+	options.preview = capture_preview;
+	options.user_data = &capture;
+	options.terminal_fd = -1;
+	options.terminal_columns = 40u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(renderer, "First", 5u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(capture.stable.len == 0u);
+	assert(strstr(capture.preview.bytes, "First") != NULL);
+	assert(morph_md_kitty_append(renderer, " **bold**", 9u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(capture.stable.len == 0u);
+	assert(strstr(capture.preview.bytes, "\033[1mbold\033[0m") != NULL);
+	updates = capture.updates;
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(capture.updates == updates);
+	assert(morph_md_kitty_append(renderer, "\n\nNext", 6u, 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	capture.stable.bytes[capture.stable.len] = '\0';
+	assert(substring_count(capture.stable.bytes, "First") == 1);
+	assert(strstr(capture.preview.bytes, "Next") != NULL);
+	assert(strstr(capture.preview.bytes, "First") == NULL);
+	assert(morph_md_kitty_append(renderer, NULL, 0u, 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	capture.stable.bytes[capture.stable.len] = '\0';
+	assert(capture.preview.len == 0u);
+	assert(substring_count(capture.stable.bytes, "First") == 1);
+	assert(substring_count(capture.stable.bytes, "Next") == 1);
+	assert(strstr(capture.stable.bytes, "\033[A") == NULL);
+	morph_md_kitty_destroy(renderer);
+}
+
+static void test_preview_renders_open_code_and_tables_without_media_loading(void)
+{
+	struct morph_md_kitty_options options = {0};
+	struct preview_capture capture = {0};
+	struct loader_capture loader = {"/nonexistent-preview-image.png", 0, 0};
+	struct morph_md_kitty *renderer;
+	const char *markdown =
+		"```c\nint value = 1;\n\n";
+	const char *table =
+		"```\n\n| image | text |\n|---|---|\n"
+		"| ![](https://example.test/a.jpg) | LIVE_CELL |\n";
+
+	options.features = MORPH_MD_FEATURE_GFM;
+	options.write = capture_stable_with_preview;
+	options.preview = capture_preview;
+	options.user_data = &capture;
+	options.terminal_fd = -1;
+	options.terminal_columns = 100u;
+	options.load_image = load_test_image;
+	options.release_image = release_test_image;
+	options.image_user_data = &loader;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(renderer, markdown, strlen(markdown), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(capture.stable.len == 0u);
+	assert(strstr(capture.preview.bytes, "value") != NULL);
+	assert(morph_md_kitty_append(renderer, table, strlen(table), 0) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(strstr(capture.preview.bytes, "LIVE_CELL") != NULL);
+	assert(strstr(capture.preview.bytes, "[image:") != NULL);
+	assert(strstr(capture.preview.bytes, "\033_G") == NULL);
+	assert(loader.loads == 0);
+	assert(morph_md_kitty_append(renderer, NULL, 0u, 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(capture.preview.len == 0u);
+	assert(loader.loads == 1);
+	morph_md_kitty_destroy(renderer);
+	assert(loader.releases == 1);
+}
+
 static void test_loaded_images_keep_table_layout_and_stream_cache(void)
 {
 	struct morph_md_kitty_options options = {0};
@@ -1240,6 +1346,8 @@ static void test_image_caption_links_encode_paths_and_preserve_urls(void)
 
 int main(void)
 {
+	test_mutable_preview_updates_and_commits_once();
+	test_preview_renders_open_code_and_tables_without_media_loading();
 	test_stream_render_and_final();
 	test_loaded_images_keep_table_layout_and_stream_cache();
 	test_image_caption_links_encode_paths_and_preserve_urls();
