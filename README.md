@@ -76,6 +76,30 @@ SDKs render the serialized IR with native views.
   finer line-level stability rules are pending.
 - Dedicated footnote presentation nodes are not modeled yet.
 
+## Source code highlighting
+
+Include `morph_markdown_highlight.h` and link `morph-markdown-render` to highlight
+source files directly, without parsing them as Markdown:
+
+```c
+const char *language = morph_md_highlight_language(path, source, source_len);
+char *highlighted = NULL;
+size_t highlighted_len = 0;
+if (morph_md_highlight_ansi(language, source, source_len,
+                          &highlighted, &highlighted_len) == 0) {
+    /* Consume the ANSI SGR text, or convert it to native styled spans. */
+    free(highlighted);
+}
+```
+
+Language detection uses supported extensions, special filenames such as
+`Makefile`, and direct or `env` shebangs. Unknown languages remain plain text.
+Markdown files keep their existing document-rendering path. The highlighter
+preserves source bytes, leading/trailing blank lines and cross-line comment
+state, and appends a style reset for recognized languages. It does not wrap text
+or move the cursor. Sanitize untrusted terminal controls before highlighting;
+only the generated styles should be trusted by a terminal host.
+
 ## Kitty Demo
 
 Prepare third-party sources inside this checkout:

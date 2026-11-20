@@ -33,6 +33,7 @@ add_library(morph-markdown-render STATIC
 	src/base/md_utf8.c
 	src/base/md_width.c
 	src/md_highlight.c
+	src/md_highlight_api.c
 	src/md_math_ext.c
 	src/md_stream.c
 )
@@ -186,6 +187,9 @@ if(MORPH_MARKDOWN_BUILD_TESTS)
 		tests/test_md_highlight.c
 	)
 	target_link_libraries(test_md_highlight PRIVATE morph-markdown-render)
+	if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+		target_compile_options(test_md_highlight PRIVATE -UNDEBUG)
+	endif()
 
 	add_test(NAME test_md_highlight COMMAND test_md_highlight)
 

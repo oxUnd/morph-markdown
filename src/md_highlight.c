@@ -711,6 +711,16 @@ static const struct lang_def *find_lang_alias(const char *lang, size_t len)
 
 /* ---------------- keyword lookup ---------------- */
 
+const char *morph_md_highlight_find_language(const char *name, size_t len)
+{
+	const struct lang_def *language = find_lang(name, len);
+
+	if (!language)
+		language = find_lang_alias(name, len);
+
+	return language ? language->name : NULL;
+}
+
 static int kw_find(const char *word, size_t wlen,
 		      const char *const *table)
 {

@@ -38,6 +38,8 @@ static inline void morph_md_sbuf_append(struct morph_md_sbuf *s, const char *str
 
 typedef void (*morph_md_highlight_newline_fn)(void *userdata);
 
+const char *morph_md_highlight_find_language(const char *name, size_t len);
+
 void morph_md_highlight_code(const char *lang, size_t lang_len,
 		    const char *code, size_t code_len,
 		    struct morph_md_sbuf *out,
