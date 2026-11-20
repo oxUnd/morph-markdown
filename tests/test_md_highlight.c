@@ -24,6 +24,30 @@ static char *highlight(const char *language, const char *code, size_t *out_len)
 	return result;
 }
 
+static void assert_source_preserved(const char *result, size_t len,
+				    const char *source)
+{
+	size_t offset = 0u;
+
+	while (offset < len) {
+		if (result[offset] == '\033') {
+			assert(offset + 1u < len && result[offset + 1u] == '[');
+			offset += 2u;
+			while (offset < len && result[offset] != 'm')
+				offset++;
+			assert(offset < len);
+			offset++;
+			continue;
+		}
+
+		assert(*source != '\0' && result[offset] == *source);
+		source++;
+		offset++;
+	}
+
+	assert(*source == '\0');
+}
+
 static void test_c_tokens_are_colored(void)
 {
 	const char *code = "int main(void) { return 42; } // done\n";
@@ -37,6 +61,106 @@ static void test_c_tokens_are_colored(void)
 	assert(strstr(result, "\033[35m42\033[38;5;250m") != NULL);
 	assert(strstr(result, "\033[2;36m// done\033[0m\n") != NULL);
 	free(result);
+}
+
+static void test_css_tokens_are_colored(void)
+{
+	const char *code =
+		"/* theme */\n"
+		".card, #main > a:hover {\n"
+		"  color: #ff8800;\n"
+		"  padding: 10px 1.5em;\n"
+		"  background: rgba(0, 0, 0, .5) !important;\n"
+		"}\n"
+		"@media (min-width: 40em) { .card { display: none; } }\n";
+	size_t len;
+	char *result = highlight("css", code, &len);
+
+	assert(strstr(result,
+		      "\033[2;36m/* theme */\033[38;5;250m\033[0m\n") != NULL);
+	assert(strstr(result,
+		      "\033[36m.card, #main > a:hover \033[38;5;250m{") != NULL);
+	assert(strstr(result, "\033[1;33mcolor\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[35m#ff8800\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[35m10px\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[35m1.5em\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[34mrgba\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[35m.5\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[1;33m!important\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[1;33m@media\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[1;33mdisplay\033[38;5;250m") != NULL);
+	assert_source_preserved(result, len, code);
+	free(result);
+}
+
+static void test_html_tokens_are_colored(void)
+{
+	const char *code =
+		"<!DOCTYPE html>\n"
+		"<section class=\"hero\" data-id='42'>\n"
+		"  <!-- note -->\n"
+		"  <p>A &amp; B</p>\n"
+		"</section>\n";
+	size_t len;
+	char *result = highlight("html", code, &len);
+
+	assert(strstr(result,
+		      "\033[35m<!DOCTYPE html>\033[38;5;250m") != NULL);
+	assert(strstr(result, "<\033[1;33msection\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[36mclass\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[32m\"hero\"\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[36mdata-id\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[32m'42'\033[38;5;250m") != NULL);
+	assert(strstr(result,
+		      "\033[2;36m<!-- note -->\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[35m&amp;\033[38;5;250m") != NULL);
+	assert(strstr(result, "</\033[1;33msection\033[38;5;250m>") != NULL);
+	assert_source_preserved(result, len, code);
+	free(result);
+}
+
+static void test_html_embedded_styles_and_scripts(void)
+{
+	const char *code =
+		"<style>\n"
+		".card { color: red; }\n"
+		"</style>\n"
+		"<script>const answer = 42;</script>\n";
+	size_t len;
+	char *result = highlight("html", code, &len);
+
+	assert(strstr(result,
+		      "\033[36m.card \033[38;5;250m{") != NULL);
+	assert(strstr(result, "\033[1;33mcolor\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[1;33mconst\033[38;5;250m") != NULL);
+	assert(strstr(result, "\033[35m42\033[38;5;250m") != NULL);
+	assert_source_preserved(result, len, code);
+	free(result);
+}
+
+static void test_malformed_css_and_html_terminate(void)
+{
+	static const struct {
+		const char *language;
+		const char *code;
+	} cases[] = {
+		{"css", "/* unterminated"},
+		{"css", ".card { color: \"red"},
+		{"css", "@media (min-width: 40em) { .card {"},
+		{"html", "<!-- unterminated"},
+		{"html", "<div class=\"unterminated"},
+		{"html", "<style>.card { color: red; }"},
+		{"html", "<"},
+	};
+
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		size_t len;
+		char *result = highlight(cases[i].language, cases[i].code, &len);
+
+		assert(len >= strlen(cases[i].code));
+		assert_source_preserved(result, len, cases[i].code);
+		free(result);
+	}
 }
 
 static void test_alias_and_unknown_language(void)
@@ -86,6 +210,8 @@ static void test_file_language_detection(void)
 		{"main.py", "python"}, {"main.tsx", "typescript"},
 		{"main.MJS", "javascript"}, {"main.kts", "kotlin"},
 		{"config.YML", "yaml"}, {"Cargo.toml", "toml"},
+		{"styles/site.css", "css"}, {"index.html", "html"},
+		{"index.HTM", "html"}, {"page.xhtml", "html"},
 		{"dir/Makefile", "makefile"}, {"GNUmakefile", "makefile"},
 		{".zshrc", "shell"}, {"C:\\src\\main.rs", "rust"},
 		{"readme.md", NULL}, {"README.MARKDOWN", NULL},
@@ -177,6 +303,10 @@ static void test_public_api_rejects_invalid_arguments(void)
 int main(void)
 {
 	test_c_tokens_are_colored();
+	test_css_tokens_are_colored();
+	test_html_tokens_are_colored();
+	test_html_embedded_styles_and_scripts();
+	test_malformed_css_and_html_terminate();
 	test_alias_and_unknown_language();
 	test_long_line_is_not_truncated();
 	test_file_language_detection();

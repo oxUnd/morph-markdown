@@ -45,9 +45,10 @@ Inline code renders without its Markdown delimiters, using padded reverse-video
 terminal styling, and remains an atomic inline item.
 The built-in highlighter recognizes C, C++, Java, Python, Rust, Go,
 JavaScript/TypeScript, Ruby, PHP, Swift, Kotlin, Scala, shell, SQL, Lua, Perl,
-Haskell, R, Make, TOML, YAML and JSON, including common aliases such as `js`,
-`ts`, `py`, `rs`, `sh` and `c++`. Unknown or omitted languages remain
-uncolored.
+Haskell, R, Make, TOML, YAML, JSON, CSS and HTML, including common aliases such
+as `js`, `ts`, `py`, `rs`, `sh`, `c++`, `htm` and `xhtml`. HTML `<style>` and
+`<script>` bodies continue as CSS and JavaScript. Unknown or omitted languages
+remain uncolored.
 
 Local PNG images are transmitted directly with the Kitty graphics protocol.
 Block images are scaled down only when necessary to fit the content viewport;

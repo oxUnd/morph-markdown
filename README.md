@@ -100,6 +100,11 @@ state, and appends a style reset for recognized languages. It does not wrap text
 or move the cursor. Sanitize untrusted terminal controls before highlighting;
 only the generated styles should be trusted by a terminal host.
 
+CSS and HTML use dedicated scanners instead of the generic keyword tables.
+HTML highlights tags, attributes, quoted/unquoted values, entities and
+comments, and keeps highlighting `<style>` bodies as CSS and `<script>` bodies
+as JavaScript.
+
 ## Kitty Demo
 
 Prepare third-party sources inside this checkout:

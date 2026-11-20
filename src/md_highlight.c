@@ -57,6 +57,11 @@ enum hl_tok {
 	HL_TOK_NUMBER,
 	HL_TOK_PREPROC,
 	HL_TOK_FUNC,
+	HL_TOK_SELECTOR,
+	HL_TOK_PROPERTY,
+	HL_TOK_TAG,
+	HL_TOK_ATTR,
+	HL_TOK_ENTITY,
 };
 
 /* ---------------- language definition ---------------- */
@@ -634,6 +639,7 @@ static const char *const bi_json[] = { NULL };
 static const char *const tp_bash[] = { NULL };
 static const char *const tp_shell[] = { NULL };
 static const char *const tp_make[] = { NULL };
+static const char *const no_words[] = { NULL };
 
 /* ---------------- language table ---------------- */
 
@@ -662,6 +668,8 @@ static const struct lang_def lang_table[] = {
 	{"toml", tp_toml, tp_toml, bi_toml, '#', 0, 0, 0, 0, '"', 0, 0, 0, 0},
 	{"yaml", tp_yaml, tp_yaml, bi_yaml, '#', 0, 0, 0, 0, '"', '\'', 0, 0, 0},
 	{"json", tp_json, tp_json, bi_json, 0, 0, 0, 0, 0, '"', 0, 0, 0, 0},
+	{"css", no_words, no_words, no_words, '/', '/', '*', '*', '/', '"', '\'', 0, 0, 0},
+	{"html", no_words, no_words, no_words, 0, 0, 0, 0, 0, '"', 0, 0, 0, 0},
 };
 #define LANG_COUNT (sizeof(lang_table)/sizeof(lang_table[0]))
 
@@ -698,6 +706,7 @@ static const struct lang_def *find_lang_alias(const char *lang, size_t len)
 		{"kt", "kotlin"},
 		{"scala", "scala"},
 		{"swift", "swift"},
+		{"htm", "html"}, {"xhtml", "html"},
 	};
 	for (size_t i = 0; i < sizeof(aliases)/sizeof(aliases[0]); i++) {
 		if (strlen(aliases[i].alias) == len &&
@@ -764,6 +773,11 @@ static const char *tok_color(enum hl_tok t)
 	case HL_TOK_NUMBER:     return HL_NUM;
 	case HL_TOK_PREPROC:    return HL_PREP;
 	case HL_TOK_FUNC:       return HL_FUNC;
+	case HL_TOK_SELECTOR:   return HL_TYPE;
+	case HL_TOK_PROPERTY:   return HL_KW;
+	case HL_TOK_TAG:        return HL_KW;
+	case HL_TOK_ATTR:       return HL_TYPE;
+	case HL_TOK_ENTITY:     return HL_NUM;
 	default:                return HL_DEFAULT;
 	}
 }
@@ -776,7 +790,33 @@ enum hl_state {
 	HL_ST_COMMENT_LINE,
 	HL_ST_COMMENT_BLOCK,
 	HL_ST_PREPROC,
+	HL_ST_HTML_COMMENT,
 };
+
+enum css_mode {
+	CSS_MODE_SELECTOR = 0,
+	CSS_MODE_PROPERTY,
+	CSS_MODE_VALUE,
+	CSS_MODE_AT_RULE,
+};
+
+enum html_mode {
+	HTML_MODE_TEXT = 0,
+	HTML_MODE_TAG_NAME,
+	HTML_MODE_TAG,
+	HTML_MODE_ATTR,
+	HTML_MODE_ATTR_VALUE,
+	HTML_MODE_DECL,
+	HTML_MODE_RAW,
+};
+
+enum hl_lang_kind {
+	HL_LANG_GENERIC = 0,
+	HL_LANG_CSS,
+	HL_LANG_HTML,
+};
+
+#define HL_CSS_MAX_DEPTH 32
 
 struct hl_scanner {
 	const struct lang_def *language;
@@ -790,6 +830,15 @@ struct hl_scanner {
 	int escape;
 	morph_md_highlight_newline_fn newline;
 	void *newline_data;
+	enum css_mode css_mode;
+	size_t css_depth;
+	unsigned char css_block[HL_CSS_MAX_DEPTH];
+	int css_at_group;
+	enum html_mode html_mode;
+	char html_quote;
+	size_t html_tag_start;
+	unsigned char html_raw_tag;
+	int html_closing;
 };
 
 static void scanner_color(struct hl_scanner *scanner, enum hl_tok token)
@@ -813,6 +862,26 @@ static int is_identifier_start(char value)
 	return (value >= 'a' && value <= 'z') ||
 	       (value >= 'A' && value <= 'Z') ||
 	       value == '_' || value == '$';
+}
+
+static char ascii_lower_value(char value)
+{
+	return value >= 'A' && value <= 'Z'
+		? (char)(value + ('a' - 'A')) : value;
+}
+
+static int ascii_span_equal_ci(const char *text, size_t len,
+			       const char *literal)
+{
+	if (strlen(literal) != len)
+		return 0;
+
+	for (size_t i = 0; i < len; i++) {
+		if (ascii_lower_value(text[i]) != ascii_lower_value(literal[i]))
+			return 0;
+	}
+
+	return 1;
 }
 
 static int is_identifier_part(char value)
@@ -1096,6 +1165,857 @@ static void scan_preprocessor(struct hl_scanner *scanner)
 	scanner_newline(scanner, HL_TOK_DEFAULT);
 }
 
+/* ---------------- CSS scanner ---------------- */
+
+static int css_ident_char(char value)
+{
+	unsigned char byte = (unsigned char)value;
+
+	return (byte >= 'a' && byte <= 'z') ||
+	       (byte >= 'A' && byte <= 'Z') ||
+	       (byte >= '0' && byte <= '9') ||
+	       byte == '-' || byte == '_' || byte >= 0x80u;
+}
+
+static int css_ident_start(char value)
+{
+	unsigned char byte = (unsigned char)value;
+
+	return (byte >= 'a' && byte <= 'z') ||
+	       (byte >= 'A' && byte <= 'Z') ||
+	       byte == '_' || byte == '-' || byte >= 0x80u;
+}
+
+static int css_hex_digit(char value)
+{
+	unsigned char byte = (unsigned char)value;
+
+	return (byte >= '0' && byte <= '9') ||
+	       (byte >= 'a' && byte <= 'f') ||
+	       (byte >= 'A' && byte <= 'F');
+}
+
+static int css_group_at_rule(const char *name, size_t len)
+{
+	static const char *const groups[] = {
+		"media", "supports", "layer", "container", "scope", "document",
+		"starting-style", "keyframes", "-webkit-keyframes", NULL,
+	};
+
+	for (size_t i = 0; groups[i]; i++) {
+		if (ascii_span_equal_ci(name, len, groups[i]))
+			return 1;
+	}
+
+	return 0;
+}
+
+static enum css_mode css_parent_mode(const struct hl_scanner *scanner)
+{
+	if (scanner->css_depth == 0u)
+		return CSS_MODE_SELECTOR;
+
+	return scanner->css_block[scanner->css_depth - 1u] != 0u
+		? CSS_MODE_PROPERTY : CSS_MODE_SELECTOR;
+}
+
+static void css_open_block(struct hl_scanner *scanner, int declarations)
+{
+	if (scanner->css_depth < HL_CSS_MAX_DEPTH)
+		scanner->css_block[scanner->css_depth++] =
+			(unsigned char)(declarations ? 1 : 0);
+
+	scanner->css_mode = declarations ? CSS_MODE_PROPERTY : CSS_MODE_SELECTOR;
+	scanner->css_at_group = 0;
+}
+
+static void css_close_block(struct hl_scanner *scanner)
+{
+	if (scanner->css_depth > 0u)
+		scanner->css_depth--;
+
+	scanner->css_mode = css_parent_mode(scanner);
+}
+
+static void css_start_string(struct hl_scanner *scanner, char delimiter)
+{
+	scanner_color(scanner, HL_TOK_STRING);
+	hl_out_ch(&scanner->output, delimiter);
+	scanner->string_delimiter = delimiter;
+	scanner->state = HL_ST_STRING;
+	scanner->offset++;
+}
+
+static int css_scan_hex_color(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+	size_t offset = start + 1u;
+
+	while (offset < scanner->code_len &&
+	       css_hex_digit(scanner->code[offset]))
+		offset++;
+
+	if (offset == start + 1u)
+		return 0;
+
+	scanner_color(scanner, HL_TOK_NUMBER);
+	hl_out_n(&scanner->output, scanner->code + start, offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+	scanner->offset = offset;
+	return 1;
+}
+
+static void css_scan_number(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+	size_t offset = start;
+
+	if (scanner->code[offset] == '-' || scanner->code[offset] == '+')
+		offset++;
+	while (offset < scanner->code_len) {
+		unsigned char byte = (unsigned char)scanner->code[offset];
+
+		if ((byte >= '0' && byte <= '9') ||
+		    (byte >= 'a' && byte <= 'z') ||
+		    (byte >= 'A' && byte <= 'Z') ||
+		    byte == '.' || byte == '%') {
+			offset++;
+			continue;
+		}
+		break;
+	}
+
+	scanner_color(scanner, HL_TOK_NUMBER);
+	hl_out_n(&scanner->output, scanner->code + start, offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+	scanner->offset = offset;
+}
+
+static void css_scan_bang_keyword(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+
+	scanner->offset++;
+	while (scanner->offset < scanner->code_len &&
+	       css_ident_char(scanner->code[scanner->offset]))
+		scanner->offset++;
+
+	scanner_color(scanner, HL_TOK_KEYWORD);
+	hl_out_n(&scanner->output, scanner->code + start,
+		 scanner->offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+}
+
+static void css_scan_value_word(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+	size_t offset = start;
+
+	if (scanner->code[offset] == '-')
+		offset++;
+	while (offset < scanner->code_len &&
+	       css_ident_char(scanner->code[offset]))
+		offset++;
+
+	if (offset < scanner->code_len && scanner->code[offset] == '(') {
+		scanner_color(scanner, HL_TOK_BUILTIN);
+		hl_out_n(&scanner->output, scanner->code + start, offset - start);
+		scanner_color(scanner, HL_TOK_DEFAULT);
+	} else {
+		hl_out_n(&scanner->output, scanner->code + start, offset - start);
+	}
+
+	scanner->offset = offset;
+}
+
+static void css_scan_at_rule(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+	size_t offset = start + 1u;
+
+	while (offset < scanner->code_len &&
+	       css_ident_char(scanner->code[offset]))
+		offset++;
+
+	if (offset == start + 1u) {
+		hl_out_ch(&scanner->output, scanner->code[start]);
+		scanner->offset++;
+		return;
+	}
+
+	scanner->css_at_group = css_group_at_rule(scanner->code + start + 1u,
+						  offset - start - 1u);
+	scanner_color(scanner, HL_TOK_KEYWORD);
+	hl_out_n(&scanner->output, scanner->code + start, offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+	scanner->offset = offset;
+	scanner->css_mode = CSS_MODE_AT_RULE;
+}
+
+static void css_scan_selector(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+	size_t start;
+
+	if (value == '{') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_open_block(scanner, 1);
+		return;
+	}
+	if (value == '}') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_close_block(scanner);
+		return;
+	}
+	if (value == ';') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		return;
+	}
+	if (value == '@') {
+		css_scan_at_rule(scanner);
+		return;
+	}
+
+	start = scanner->offset;
+	while (scanner->offset < scanner->code_len) {
+		value = scanner->code[scanner->offset];
+		if (value == '{' || value == '}' || value == ';' ||
+		    value == '@' || value == '"' || value == '\'' ||
+		    value == '/' || value == '\n')
+			break;
+		scanner->offset++;
+	}
+
+	if (scanner->offset == start) {
+		hl_out_ch(&scanner->output, scanner->code[start]);
+		scanner->offset++;
+		return;
+	}
+
+	scanner_color(scanner, HL_TOK_SELECTOR);
+	hl_out_n(&scanner->output, scanner->code + start,
+		 scanner->offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+}
+
+static void css_scan_property(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+	size_t start;
+
+	if (value == ':') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->css_mode = CSS_MODE_VALUE;
+		return;
+	}
+	if (value == ';') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		return;
+	}
+	if (value == '{') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_open_block(scanner, 1);
+		return;
+	}
+	if (value == '}') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_close_block(scanner);
+		return;
+	}
+	if (value == '@') {
+		css_scan_at_rule(scanner);
+		return;
+	}
+	if (!css_ident_char(value)) {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		return;
+	}
+
+	start = scanner->offset;
+	while (scanner->offset < scanner->code_len &&
+	       css_ident_char(scanner->code[scanner->offset]))
+		scanner->offset++;
+	scanner_color(scanner, HL_TOK_PROPERTY);
+	hl_out_n(&scanner->output, scanner->code + start,
+		 scanner->offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+}
+
+static void css_scan_value(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+
+	if (value == ';') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->css_mode = CSS_MODE_PROPERTY;
+		return;
+	}
+	if (value == '{') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_open_block(scanner, 1);
+		return;
+	}
+	if (value == '}') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_close_block(scanner);
+		return;
+	}
+	if (value == '@') {
+		css_scan_at_rule(scanner);
+		return;
+	}
+	if (value == '!') {
+		css_scan_bang_keyword(scanner);
+		return;
+	}
+	if (value == '#' && css_scan_hex_color(scanner))
+		return;
+	if ((value >= '0' && value <= '9') ||
+	    (value == '.' && scanner->offset + 1u < scanner->code_len &&
+	     scanner->code[scanner->offset + 1u] >= '0' &&
+	     scanner->code[scanner->offset + 1u] <= '9') ||
+	    ((value == '-' || value == '+') &&
+	     scanner->offset + 1u < scanner->code_len &&
+	     scanner->code[scanner->offset + 1u] >= '0' &&
+	     scanner->code[scanner->offset + 1u] <= '9')) {
+		css_scan_number(scanner);
+		return;
+	}
+	if (css_ident_start(value)) {
+		css_scan_value_word(scanner);
+		return;
+	}
+
+	hl_out_ch(&scanner->output, value);
+	scanner->offset++;
+}
+
+static void css_scan_at_rule_body(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+
+	if (value == ';') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->css_mode = css_parent_mode(scanner);
+		scanner->css_at_group = 0;
+		return;
+	}
+	if (value == '{') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_open_block(scanner, scanner->css_at_group ? 0 : 1);
+		return;
+	}
+	if (value == '}') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		css_close_block(scanner);
+		return;
+	}
+	if ((value >= '0' && value <= '9') ||
+	    (value == '.' && scanner->offset + 1u < scanner->code_len &&
+	     scanner->code[scanner->offset + 1u] >= '0' &&
+	     scanner->code[scanner->offset + 1u] <= '9')) {
+		css_scan_number(scanner);
+		return;
+	}
+	if (css_ident_start(value)) {
+		css_scan_value_word(scanner);
+		return;
+	}
+
+	hl_out_ch(&scanner->output, value);
+	scanner->offset++;
+}
+
+static void css_scan_default(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+
+	if (value == '/' && scanner->offset + 1u < scanner->code_len &&
+	    scanner->code[scanner->offset + 1u] == '*') {
+		start_block_comment(scanner);
+		return;
+	}
+	if (value == '"' || value == '\'') {
+		css_start_string(scanner, value);
+		return;
+	}
+	if (value == '\n') {
+		scanner_newline(scanner, HL_TOK_DEFAULT);
+		return;
+	}
+
+	switch (scanner->css_mode) {
+	case CSS_MODE_SELECTOR:
+		css_scan_selector(scanner);
+		break;
+	case CSS_MODE_PROPERTY:
+		css_scan_property(scanner);
+		break;
+	case CSS_MODE_VALUE:
+		css_scan_value(scanner);
+		break;
+	case CSS_MODE_AT_RULE:
+		css_scan_at_rule_body(scanner);
+		break;
+	}
+}
+
+static void css_scan_next(struct hl_scanner *scanner)
+{
+	switch (scanner->state) {
+	case HL_ST_STRING:
+		scan_string(scanner);
+		break;
+	case HL_ST_COMMENT_BLOCK:
+		scan_block_comment(scanner);
+		break;
+	default:
+		css_scan_default(scanner);
+		break;
+	}
+}
+
+/* ---------------- HTML scanner ---------------- */
+
+static void run_highlighter(const struct lang_def *language,
+			    const char *code, size_t code_len,
+			    struct morph_md_sbuf *out,
+			    morph_md_highlight_newline_fn newline_cb,
+			    void *newline_ud);
+
+static int html_name_char(char value)
+{
+	unsigned char byte = (unsigned char)value;
+
+	return (byte >= 'a' && byte <= 'z') ||
+	       (byte >= 'A' && byte <= 'Z') ||
+	       (byte >= '0' && byte <= '9') ||
+	       byte == '-' || byte == '_' || byte == ':' || byte == '.';
+}
+
+static int html_attr_char(char value)
+{
+	unsigned char byte = (unsigned char)value;
+
+	return html_name_char(value) || byte == '@' || byte == '#' ||
+	       byte == '$' || byte == '[' || byte == ']' ||
+	       byte == '(' || byte == ')' || byte == '*';
+}
+
+static int html_tag_start_char(char value)
+{
+	return (value >= 'a' && value <= 'z') ||
+	       (value >= 'A' && value <= 'Z');
+}
+
+static int html_space(char value)
+{
+	return value == ' ' || value == '\t' || value == '\r';
+}
+
+static void html_scan_comment(struct hl_scanner *scanner)
+{
+	if (scanner->offset + 2u < scanner->code_len &&
+	    scanner->code[scanner->offset] == '-' &&
+	    scanner->code[scanner->offset + 1u] == '-' &&
+	    scanner->code[scanner->offset + 2u] == '>') {
+		hl_out_n(&scanner->output, scanner->code + scanner->offset, 3u);
+		scanner->offset += 3u;
+		scanner->state = HL_ST_DEFAULT;
+		scanner_color(scanner, HL_TOK_DEFAULT);
+		return;
+	}
+	if (scanner->code[scanner->offset] == '\n') {
+		scanner_newline(scanner, HL_TOK_COMMENT);
+		return;
+	}
+
+	hl_out_ch(&scanner->output, scanner->code[scanner->offset]);
+	scanner->offset++;
+}
+
+static int html_scan_entity(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+	size_t offset = start + 1u;
+	size_t digits;
+
+	if (offset < scanner->code_len && scanner->code[offset] == '#')
+		offset++;
+	digits = offset;
+	while (offset < scanner->code_len && offset - start <= 32u) {
+		unsigned char byte = (unsigned char)scanner->code[offset];
+
+		if (!((byte >= 'a' && byte <= 'z') ||
+		      (byte >= 'A' && byte <= 'Z') ||
+		      (byte >= '0' && byte <= '9')))
+			break;
+		offset++;
+	}
+	if (offset == digits || offset >= scanner->code_len ||
+	    scanner->code[offset] != ';')
+		return 0;
+
+	scanner_color(scanner, HL_TOK_ENTITY);
+	hl_out_n(&scanner->output, scanner->code + start, offset - start + 1u);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+	scanner->offset = offset + 1u;
+	return 1;
+}
+
+static void html_finish_tag_name(struct hl_scanner *scanner)
+{
+	size_t len = scanner->offset - scanner->html_tag_start;
+
+	if (!scanner->html_closing && len > 0u) {
+		if (ascii_span_equal_ci(scanner->code + scanner->html_tag_start,
+					len, "style"))
+			scanner->html_raw_tag = 1u;
+		else if (ascii_span_equal_ci(
+				 scanner->code + scanner->html_tag_start,
+				 len, "script"))
+			scanner->html_raw_tag = 2u;
+	}
+
+	scanner->html_mode = HTML_MODE_TAG;
+}
+
+static void html_scan_tag_name(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+
+	while (scanner->offset < scanner->code_len &&
+	       html_name_char(scanner->code[scanner->offset]))
+		scanner->offset++;
+
+	if (scanner->offset == start) {
+		html_finish_tag_name(scanner);
+		return;
+	}
+
+	scanner_color(scanner, HL_TOK_TAG);
+	hl_out_n(&scanner->output, scanner->code + start,
+		 scanner->offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+}
+
+static void html_scan_tag(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+	size_t start;
+
+	if (value == '>') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->html_mode = !scanner->html_closing &&
+			scanner->html_raw_tag != 0u
+			? HTML_MODE_RAW : HTML_MODE_TEXT;
+		return;
+	}
+	if (value == '/' && scanner->offset + 1u < scanner->code_len &&
+	    scanner->code[scanner->offset + 1u] == '>') {
+		hl_out_n(&scanner->output, scanner->code + scanner->offset, 2u);
+		scanner->offset += 2u;
+		scanner->html_raw_tag = 0u;
+		scanner->html_mode = HTML_MODE_TEXT;
+		return;
+	}
+	if (html_space(value)) {
+		scanner->html_mode = HTML_MODE_TAG;
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		return;
+	}
+	if (value == '=') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->html_quote = 0;
+		scanner->html_mode = HTML_MODE_ATTR_VALUE;
+		return;
+	}
+	if (value == '"' || value == '\'') {
+		scanner_color(scanner, HL_TOK_STRING);
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->html_quote = value;
+		scanner->html_mode = HTML_MODE_ATTR_VALUE;
+		return;
+	}
+	if (html_attr_char(value)) {
+		start = scanner->offset;
+		while (scanner->offset < scanner->code_len &&
+		       html_attr_char(scanner->code[scanner->offset]))
+			scanner->offset++;
+		scanner_color(scanner, HL_TOK_ATTR);
+		hl_out_n(&scanner->output, scanner->code + start,
+			 scanner->offset - start);
+		scanner_color(scanner, HL_TOK_DEFAULT);
+		scanner->html_mode = HTML_MODE_ATTR;
+		return;
+	}
+
+	hl_out_ch(&scanner->output, value);
+	scanner->offset++;
+}
+
+static void html_scan_attr(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+
+	if (!html_attr_char(scanner->code[scanner->offset])) {
+		html_scan_tag(scanner);
+		return;
+	}
+
+	while (scanner->offset < scanner->code_len &&
+	       html_attr_char(scanner->code[scanner->offset]))
+		scanner->offset++;
+	scanner_color(scanner, HL_TOK_ATTR);
+	hl_out_n(&scanner->output, scanner->code + start,
+		 scanner->offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+}
+
+static void html_scan_attr_value(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+	size_t start;
+
+	if (scanner->html_quote != 0) {
+		if (value == scanner->html_quote) {
+			hl_out_ch(&scanner->output, value);
+			scanner->offset++;
+			scanner->html_quote = 0;
+			scanner->html_mode = HTML_MODE_TAG;
+			scanner_color(scanner, HL_TOK_DEFAULT);
+			return;
+		}
+		if (value == '\n') {
+			scanner_newline(scanner, HL_TOK_STRING);
+			return;
+		}
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		return;
+	}
+
+	if (value == '"' || value == '\'') {
+		scanner_color(scanner, HL_TOK_STRING);
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->html_quote = value;
+		return;
+	}
+	if (html_space(value) || value == '>' ||
+	    (value == '/' && scanner->offset + 1u < scanner->code_len &&
+	     scanner->code[scanner->offset + 1u] == '>')) {
+		scanner->html_mode = HTML_MODE_TAG;
+		html_scan_tag(scanner);
+		return;
+	}
+
+	start = scanner->offset;
+	scanner_color(scanner, HL_TOK_STRING);
+	while (scanner->offset < scanner->code_len) {
+		value = scanner->code[scanner->offset];
+		if (html_space(value) || value == '>' ||
+		    (value == '/' &&
+		     scanner->offset + 1u < scanner->code_len &&
+		     scanner->code[scanner->offset + 1u] == '>'))
+			break;
+		scanner->offset++;
+	}
+	hl_out_n(&scanner->output, scanner->code + start,
+		 scanner->offset - start);
+	scanner_color(scanner, HL_TOK_DEFAULT);
+	scanner->html_mode = HTML_MODE_TAG;
+}
+
+static void html_scan_decl(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+
+	if (value == '>') {
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		scanner->html_mode = HTML_MODE_TEXT;
+		scanner_color(scanner, HL_TOK_DEFAULT);
+		return;
+	}
+	if (value == '\n') {
+		scanner_newline(scanner, HL_TOK_PREPROC);
+		return;
+	}
+
+	hl_out_ch(&scanner->output, value);
+	scanner->offset++;
+}
+
+static int html_raw_close_at(const struct hl_scanner *scanner, size_t offset)
+{
+	const char *tag = scanner->html_raw_tag == 1u ? "style" : "script";
+	size_t tag_len = scanner->html_raw_tag == 1u ? 5u : 6u;
+	size_t end;
+
+	if (offset + 2u + tag_len > scanner->code_len)
+		return 0;
+	if (scanner->code[offset] != '<' ||
+	    scanner->code[offset + 1u] != '/')
+		return 0;
+	if (!ascii_span_equal_ci(scanner->code + offset + 2u, tag_len, tag))
+		return 0;
+
+	end = offset + 2u + tag_len;
+	return end >= scanner->code_len || html_space(scanner->code[end]) ||
+	       scanner->code[end] == '>' || scanner->code[end] == '/';
+}
+
+static void html_scan_raw(struct hl_scanner *scanner)
+{
+	size_t start = scanner->offset;
+
+	while (scanner->offset < scanner->code_len &&
+	       !html_raw_close_at(scanner, scanner->offset))
+		scanner->offset++;
+
+	if (scanner->offset > start) {
+		const struct lang_def *language = scanner->html_raw_tag == 1u
+			? find_lang("css", 3u)
+			: find_lang("javascript", 10u);
+
+		run_highlighter(language, scanner->code + start,
+				scanner->offset - start,
+				scanner->output.destination,
+				scanner->newline, scanner->newline_data);
+		scanner_color(scanner, HL_TOK_DEFAULT);
+	}
+	if (scanner->offset >= scanner->code_len)
+		return;
+
+	hl_out_ch(&scanner->output, '<');
+	hl_out_ch(&scanner->output, '/');
+	scanner->offset += 2u;
+	scanner->html_closing = 1;
+	scanner->html_raw_tag = 0u;
+	scanner->html_tag_start = scanner->offset;
+	scanner->html_mode = HTML_MODE_TAG_NAME;
+}
+
+static void html_scan_text(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+	size_t name;
+	int closing;
+
+	if (value == '<' && scanner->offset + 3u < scanner->code_len &&
+	    scanner->code[scanner->offset + 1u] == '!' &&
+	    scanner->code[scanner->offset + 2u] == '-' &&
+	    scanner->code[scanner->offset + 3u] == '-') {
+		scanner_color(scanner, HL_TOK_COMMENT);
+		hl_out_n(&scanner->output, scanner->code + scanner->offset, 4u);
+		scanner->offset += 4u;
+		scanner->state = HL_ST_HTML_COMMENT;
+		return;
+	}
+	if (value == '<' && scanner->offset + 1u < scanner->code_len &&
+	    (scanner->code[scanner->offset + 1u] == '!' ||
+	     scanner->code[scanner->offset + 1u] == '?')) {
+		scanner_color(scanner, HL_TOK_PREPROC);
+		hl_out_n(&scanner->output, scanner->code + scanner->offset, 2u);
+		scanner->offset += 2u;
+		scanner->html_mode = HTML_MODE_DECL;
+		return;
+	}
+	if (value == '<' && scanner->offset + 1u < scanner->code_len) {
+		name = scanner->offset + 1u;
+		closing = scanner->code[name] == '/';
+		if (closing)
+			name++;
+		if (name < scanner->code_len &&
+		    html_tag_start_char(scanner->code[name])) {
+			hl_out_ch(&scanner->output, '<');
+			if (closing)
+				hl_out_ch(&scanner->output, '/');
+			scanner->offset = name;
+			scanner->html_closing = closing;
+			scanner->html_raw_tag = 0u;
+			scanner->html_tag_start = name;
+			scanner->html_mode = HTML_MODE_TAG_NAME;
+			return;
+		}
+	}
+	if (value == '&' && html_scan_entity(scanner))
+		return;
+
+	hl_out_ch(&scanner->output, value);
+	scanner->offset++;
+}
+
+static void html_scan_default(struct hl_scanner *scanner)
+{
+	char value = scanner->code[scanner->offset];
+
+	if (scanner->html_mode == HTML_MODE_RAW) {
+		html_scan_raw(scanner);
+		return;
+	}
+	if (scanner->html_mode == HTML_MODE_ATTR_VALUE) {
+		html_scan_attr_value(scanner);
+		return;
+	}
+	if (scanner->html_mode == HTML_MODE_DECL) {
+		html_scan_decl(scanner);
+		return;
+	}
+	if (value == '\n') {
+		scanner_newline(scanner, HL_TOK_DEFAULT);
+		return;
+	}
+
+	switch (scanner->html_mode) {
+	case HTML_MODE_TEXT:
+		html_scan_text(scanner);
+		break;
+	case HTML_MODE_TAG_NAME:
+		html_scan_tag_name(scanner);
+		break;
+	case HTML_MODE_TAG:
+		html_scan_tag(scanner);
+		break;
+	case HTML_MODE_ATTR:
+		html_scan_attr(scanner);
+		break;
+	default:
+		hl_out_ch(&scanner->output, value);
+		scanner->offset++;
+		break;
+	}
+}
+
+static void html_scan_next(struct hl_scanner *scanner)
+{
+	if (scanner->state == HL_ST_HTML_COMMENT) {
+		html_scan_comment(scanner);
+		return;
+	}
+
+	html_scan_default(scanner);
+}
+
 static void scan_next(struct hl_scanner *scanner)
 {
 	switch (scanner->state) {
@@ -1118,21 +2038,29 @@ static void scan_next(struct hl_scanner *scanner)
 	case HL_ST_PREPROC:
 		scan_preprocessor(scanner);
 		break;
+	case HL_ST_HTML_COMMENT:
+		break;
 	}
 }
 
-void morph_md_highlight_code(const char *lang, size_t lang_len,
-			     const char *code, size_t code_len,
-			     struct morph_md_sbuf *out,
-			     morph_md_highlight_newline_fn newline_cb,
-			     void *newline_ud)
+static enum hl_lang_kind language_kind(const struct lang_def *language)
 {
-	const struct lang_def *language;
-	struct hl_scanner scanner;
+	if (strcmp(language->name, "css") == 0)
+		return HL_LANG_CSS;
+	if (strcmp(language->name, "html") == 0)
+		return HL_LANG_HTML;
+	return HL_LANG_GENERIC;
+}
 
-	language = find_lang(lang, lang_len);
-	if (!language)
-		language = find_lang_alias(lang, lang_len);
+static void run_highlighter(const struct lang_def *language,
+			    const char *code, size_t code_len,
+			    struct morph_md_sbuf *out,
+			    morph_md_highlight_newline_fn newline_cb,
+			    void *newline_ud)
+{
+	struct hl_scanner scanner;
+	enum hl_lang_kind kind;
+
 	if (!language) {
 		morph_md_sbuf_append_n(out, code, code_len);
 		return;
@@ -1146,6 +2074,33 @@ void morph_md_highlight_code(const char *lang, size_t lang_len,
 	scanner.newline = newline_cb;
 	scanner.newline_data = newline_ud;
 	hl_out_init(&scanner.output, out);
-	while (scanner.offset < scanner.code_len)
-		scan_next(&scanner);
+
+	kind = language_kind(language);
+	while (scanner.offset < scanner.code_len) {
+		switch (kind) {
+		case HL_LANG_CSS:
+			css_scan_next(&scanner);
+			break;
+		case HL_LANG_HTML:
+			html_scan_next(&scanner);
+			break;
+		case HL_LANG_GENERIC:
+			scan_next(&scanner);
+			break;
+		}
+	}
+}
+
+void morph_md_highlight_code(const char *lang, size_t lang_len,
+			     const char *code, size_t code_len,
+			     struct morph_md_sbuf *out,
+			     morph_md_highlight_newline_fn newline_cb,
+			     void *newline_ud)
+{
+	const struct lang_def *language = find_lang(lang, lang_len);
+
+	if (!language)
+		language = find_lang_alias(lang, lang_len);
+
+	run_highlighter(language, code, code_len, out, newline_cb, newline_ud);
 }
