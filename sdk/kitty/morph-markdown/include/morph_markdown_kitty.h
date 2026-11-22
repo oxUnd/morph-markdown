@@ -12,7 +12,7 @@ extern "C" {
 
 struct morph_md_kitty_options {
 	const char *font_path;
-	/* <= 0 means use current terminal cell height. */
+	/* <= 0 uses 85 percent of the terminal cell height for text-sized math. */
 	double font_size;
 	/* mathjax-c stores colors as 0xRRGGBBAA. */
 	uint32_t fg_color;
@@ -42,6 +42,9 @@ struct morph_md_kitty_options {
 	unsigned int terminal_columns;
 	/* Zero queries terminal_fd and falls back to 24 rows. */
 	unsigned int terminal_rows;
+	/* Optional protocol cell metrics; zero uses terminal detection. */
+	unsigned int cell_pixel_width;
+	unsigned int cell_pixel_height;
 	/* Content padding uses terminal rows and columns, not pixels. */
 	unsigned int content_padding_top_rows;
 	unsigned int content_padding_right_columns;

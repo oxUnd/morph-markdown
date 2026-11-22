@@ -755,6 +755,45 @@ static void test_streaming_media_callbacks_emit_once_in_place(void)
 	morph_md_kitty_destroy(renderer);
 }
 
+static void test_math_flow_preserves_media_callback_order(void)
+{
+	struct morph_md_kitty_options options = {0};
+	struct capture output;
+	struct morph_md_kitty *renderer;
+	const char *markdown = "before $x^2$ ![plot](file:///tmp/plot.jpg) "
+		"between $y^2$ [clip](file:///tmp/demo.mp4) after\n";
+	const char *before;
+	const char *image;
+	const char *between;
+	const char *video;
+	const char *after;
+
+	capture_reset(&output);
+	options.font_path = MORPH_TEST_MATH_FONT_PATH;
+	options.features = MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
+	options.write = capture_write;
+	options.user_data = &output;
+	options.media = capture_ordered_media;
+	options.media_user_data = &output;
+	options.terminal_fd = -1;
+	options.terminal_columns = 80u;
+	renderer = morph_md_kitty_create(&options);
+	assert(renderer != NULL);
+	assert(morph_md_kitty_append(renderer, markdown, strlen(markdown), 1) == 0);
+	assert(morph_md_kitty_render(renderer) == 0);
+	assert(output.len < sizeof(output.bytes));
+	output.bytes[output.len] = '\0';
+	before = strstr(output.bytes, "before");
+	image = strstr(output.bytes, "<image:/tmp/plot.jpg>");
+	between = strstr(output.bytes, "between");
+	video = strstr(output.bytes, "<video:/tmp/demo.mp4>");
+	after = strstr(output.bytes, "after");
+	assert(before && image && between && video && after);
+	assert(before < image && image < between && between < video && video < after);
+	assert(substring_count(output.bytes, "\033_Ga=T,f=32,s=") == 2);
+	morph_md_kitty_destroy(renderer);
+}
+
 static void test_local_png_renders_in_blocks_and_tables(void)
 {
 	struct morph_md_kitty_options options;
@@ -991,6 +1030,7 @@ static void test_math_uses_native_size_kitty_transfer(void)
 	memset(&options, 0, sizeof(options));
 	memset(&output, 0, sizeof(output));
 	options.font_path = MORPH_TEST_MATH_FONT_PATH;
+	options.font_size = 18.0;
 	options.features = MORPH_MD_FEATURE_GFM | MORPH_MD_FEATURE_MATH;
 	options.fg_color = 0xFFFFFFFFu;
 	options.write = capture_write;
@@ -1006,8 +1046,7 @@ static void test_math_uses_native_size_kitty_transfer(void)
 	assert(output.len < sizeof(output.bytes));
 	output.bytes[output.len] = '\0';
 	assert(strstr(output.bytes, "\033_Ga=T,f=32,s=") != NULL);
-	assert(strstr(output.bytes,
-		      "  123456789 \n  \033_Ga=T,f=32,s=") != NULL);
+	assert(strstr(output.bytes, "  123456789\n") != NULL);
 	assert(strstr(output.bytes, ",U=1,q=2,c=") != NULL);
 	assert(strstr(output.bytes, "\364\216\273\256") != NULL);
 	assert(strstr(output.bytes, "│ $x^2$ ") == NULL);
@@ -1368,6 +1407,7 @@ int main(void)
 	test_heading_underline_excludes_left_padding();
 	test_local_png_bypasses_media_callback();
 	test_media_callbacks_follow_document_order();
+	test_math_flow_preserves_media_callback_order();
 	test_streaming_media_callbacks_emit_once_in_place();
 	test_local_png_renders_in_blocks_and_tables();
 	test_streaming_image_is_transmitted_once();
